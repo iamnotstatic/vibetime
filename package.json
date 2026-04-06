@@ -1,0 +1,33 @@
+{
+  "name": "vibetime",
+  "version": "1.0.0",
+  "description": "session analytics for the vibe coding era",
+  "type": "module",
+  "main": "dist/cli.js",
+  "bin": {
+    "vibe": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "prepublishOnly": "tsc",
+    "postinstall": "echo \"\\n  ◆ vibetime installed. run 'vibe init' to complete setup.\\n\""
+  },
+  "keywords": ["cli", "sessions", "claude", "codex"],
+  "license": "MIT",
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "chalk": "^5.6.2",
+    "commander": "^14.0.3",
+    "lowdb": "^7.0.1",
+    "open": "^11.0.0",
+    "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "@types/uuid": "^10.0.0",
+    "typescript": "^6.0.2"
+  }
+}
