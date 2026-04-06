@@ -17,7 +17,7 @@ const program = new Command();
 program
   .name('vibe')
   .description('session analytics for the vibe coding era')
-  .version('0.1.0')
+  .version('0.1.1')
   .enablePositionalOptions();
 
 program

@@ -4,12 +4,12 @@ Track what you actually ship with AI.
 
 Vibetime wraps Claude Code, Codex, and Gemini and prints a session summary every time you're done. No config, no account, no daemon.
 
-![vibe status](assets/status.png)
+![vibe status](https://raw.githubusercontent.com/iamnotstatic/vibetime/main/assets/status.png)
 
 ## Install
 
 ```
-npm install -g @iamnotstatic/vibetime
+npm install -g vibetime-cli
 ```
 
 ## Setup
@@ -51,8 +51,8 @@ Sessions are scored by what happened in git:
 Run `vibe share` to print your weekly card. Press `h` to open the HTML version — copy it, screenshot it, post it.
 
 <p>
-  <img src="assets/share-terminal.png" width="400" alt="vibe share terminal" />
-  <img src="assets/share-card.png" width="400" alt="vibe share html card" />
+  <img src="https://raw.githubusercontent.com/iamnotstatic/vibetime/main/assets/share-terminal.png" width="400" alt="vibe share terminal" />
+  <img src="https://raw.githubusercontent.com/iamnotstatic/vibetime/main/assets/share-card.png" width="400" alt="vibe share html card" />
 </p>
 
 ## Adding more tools
