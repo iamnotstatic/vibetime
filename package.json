@@ -1,9 +1,8 @@
 {
   "name": "vibetime",
-  "version": "1.0.0",
-  "description": "session analytics for the vibe coding era",
+  "version": "0.1.0",
+  "description": "Track what you ship in AI coding sessions",
   "type": "module",
-  "main": "dist/cli.js",
   "bin": {
     "vibe": "dist/cli.js"
   },
@@ -13,8 +12,16 @@
     "prepublishOnly": "tsc",
     "postinstall": "echo \"\\n  ◆ vibetime installed. run 'vibe init' to complete setup.\\n\""
   },
-  "keywords": ["cli", "sessions", "claude", "codex"],
+  "keywords": ["cli", "sessions", "claude", "codex", "gemini"],
+  "author": "iamnotstatic",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/iamnotstatic/vibetime.git"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "files": [
     "dist"
   ],
