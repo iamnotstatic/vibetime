@@ -2,7 +2,7 @@
 
 Track what you actually ship with AI.
 
-Vibetime wraps Claude Code and Codex and prints a session summary every time you're done. No config, no account, no daemon.
+Vibetime wraps Claude Code, Codex, and Gemini and prints a session summary every time you're done. No config, no account, no daemon.
 
 ![vibe status](assets/status.png)
 
@@ -18,11 +18,11 @@ npm install -g vibetime
 vibe init
 ```
 
-Adds shell hooks that wrap `claude` and `codex`. The tools work exactly the same — Vibetime just snapshots your git state before and after each session, then prints the endcard when you're done.
+Adds shell hooks that wrap `claude`, `codex`, and `gemini`. The tools work exactly the same — Vibetime just snapshots your git state before and after each session, then prints the endcard when you're done.
 
 ## What you get
 
-Every time you close a Claude Code or Codex session:
+Every time you close a Claude Code, Codex, or Gemini session:
 
 ```
 ╭─────────────────────────────────────────────╮

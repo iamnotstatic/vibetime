@@ -10,6 +10,7 @@ const HOOKS = `
 ${HOOK_MARKER}
 claude() { vibe __wrap claude "$@"; }
 codex()  { vibe __wrap codex  "$@"; }
+gemini() { vibe __wrap gemini "$@"; }
 `;
 
 function detectShell() {
@@ -37,6 +38,7 @@ export function initShellHooks(): void {
   console.log(`\n  ${PURPLE('◆')} vibetime hooks added to ${rcFile} (${shell})\n`);
   console.log(`  added:`);
   console.log(`    claude() { vibe __wrap claude "$@"; }`);
-  console.log(`    codex()  { vibe __wrap codex  "$@"; }\n`);
+  console.log(`    codex()  { vibe __wrap codex  "$@"; }`);
+  console.log(`    gemini() { vibe __wrap gemini "$@"; }\n`);
   console.log(`  restart your shell or run: source ${rcFile}\n`);
 }
