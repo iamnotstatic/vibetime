@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, appendFileSync } from 'node:fs';
+import { existsSync, readFileSync, appendFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import chalk from 'chalk';
@@ -51,4 +51,49 @@ export function initShellHooks(): void {
     console.log(`    ${t}() { vibe __wrap ${t} "$@"; }`);
   }
   console.log(`\n  restart your shell or run: source ${rcFile}\n`);
+}
+
+export function removeShellHooks(): void {
+  const { rcFile } = detectShell();
+
+  if (!existsSync(rcFile)) {
+    console.log(`\n  ${PURPLE('◆')} nothing to remove — ${rcFile} not found\n`);
+    return;
+  }
+
+  const content = readFileSync(rcFile, 'utf-8');
+
+  // remove the marker block from vibe init
+  const lines = content.split('\n');
+  const filtered: string[] = [];
+  let inBlock = false;
+
+  for (const line of lines) {
+    if (line.trim() === HOOK_MARKER) {
+      inBlock = true;
+      continue;
+    }
+    if (inBlock && line.includes('vibe __wrap')) continue;
+    if (inBlock && line.trim() === '') {
+      inBlock = false;
+      continue;
+    }
+    inBlock = false;
+
+    // remove standalone hooks added via add-tool
+    if (line.includes('vibe __wrap')) continue;
+
+    filtered.push(line);
+  }
+
+  const cleaned = filtered.join('\n');
+
+  if (cleaned === content) {
+    console.log(`\n  ${PURPLE('◆')} no vibetime hooks found in ${rcFile}\n`);
+    return;
+  }
+
+  writeFileSync(rcFile, cleaned);
+  console.log(`\n  ${PURPLE('◆')} vibetime hooks removed from ${rcFile}\n`);
+  console.log(`  restart your shell or run: source ${rcFile}\n`);
 }

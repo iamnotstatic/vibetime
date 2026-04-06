@@ -6,7 +6,7 @@ import { readConfig, writeConfig, addTool } from './config.js';
 import { renderStatus, renderLog } from './render.js';
 import { renderTerminalCard, writeHtmlCard } from './share.js';
 import { wrapTool } from './wrap.js';
-import { initShellHooks } from './init.js';
+import { initShellHooks, removeShellHooks } from './init.js';
 import chalk from 'chalk';
 import open from 'open';
 
@@ -24,13 +24,18 @@ const program = new Command();
 program
   .name('vibe')
   .description('session analytics for the vibe coding era')
-  .version('0.1.3')
+  .version('0.1.4')
   .enablePositionalOptions();
 
 program
   .command('init')
   .description('set up shell hooks for session tracking')
   .action(initShellHooks);
+
+program
+  .command('uninstall')
+  .description('remove shell hooks')
+  .action(removeShellHooks);
 
 program
   .command('status')

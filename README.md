@@ -18,7 +18,7 @@ npm install -g vibetime-cli
 vibe init
 ```
 
-Adds shell hooks that wrap `claude`, `codex`, and `gemini`. The tools work exactly the same — Vibetime just snapshots your git state before and after each session, then prints the endcard when you're done.
+Adds shell hooks that wrap `claude`, `codex`, and `gemini`. The tools work exactly the same — Vibetime tracks your git state while you code and prints the endcard when you're done.
 
 ## What you get
 
@@ -73,7 +73,17 @@ vibe share --html            shareable HTML card
 vibe config show             current settings
 vibe config set handle       set your @handle
 vibe config add-tool <name>  track a new AI CLI tool
+vibe uninstall               remove shell hooks
 ```
+
+## Uninstall
+
+```
+vibe uninstall
+npm uninstall -g vibetime-cli
+```
+
+`vibe uninstall` removes all shell hooks from your rc file. Your session data in `~/.vibe/` is preserved — delete it manually if you want a clean removal.
 
 ## License
 

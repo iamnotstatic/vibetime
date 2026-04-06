@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { readFileSync, writeFileSync, renameSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, renameSync, mkdirSync, rmdirSync, unlinkSync, statSync, existsSync } from 'node:fs';
 import { VIBE_DIR, ensureVibeDir } from './config.js';
 
 export interface Session {
@@ -24,6 +24,58 @@ interface DbSchema {
 
 const DB_PATH = join(VIBE_DIR, 'sessions.json');
 const TMP_PATH = DB_PATH + '.tmp';
+const LOCK_DIR = join(VIBE_DIR, 'sessions.lock');
+const LOCK_STALE_MS = 10_000;
+
+function acquireLock(retried = false): boolean {
+  try {
+    mkdirSync(LOCK_DIR);
+    writeFileSync(join(LOCK_DIR, 'pid'), String(process.pid));
+    return true;
+  } catch {
+    if (retried) return false;
+    // lock exists — check if stale
+    try {
+      const pidFile = join(LOCK_DIR, 'pid');
+      if (existsSync(pidFile)) {
+        const stat = statSync(pidFile);
+        if (Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
+          releaseLock();
+          return acquireLock(true);
+        }
+      }
+    } catch {}
+    return false;
+  }
+}
+
+function releaseLock(): void {
+  try {
+    const pidFile = join(LOCK_DIR, 'pid');
+    if (existsSync(pidFile)) unlinkSync(pidFile);
+    rmdirSync(LOCK_DIR);
+  } catch {}
+}
+
+function withLock<T>(fn: () => T): T {
+  const maxRetries = 20;
+  const retryMs = 50;
+
+  for (let i = 0; i < maxRetries; i++) {
+    if (acquireLock()) {
+      try {
+        return fn();
+      } finally {
+        releaseLock();
+      }
+    }
+    const start = Date.now();
+    while (Date.now() - start < retryMs) { /* spin wait */ }
+  }
+
+  // fallback: run without lock rather than lose data
+  return fn();
+}
 
 function readDb(): DbSchema {
   ensureVibeDir();
@@ -50,18 +102,22 @@ function writeDb(data: DbSchema): void {
 }
 
 export async function addSession(session: Session): Promise<void> {
-  const data = readDb();
-  data.sessions.push(session);
-  writeDb(data);
+  withLock(() => {
+    const data = readDb();
+    data.sessions.push(session);
+    writeDb(data);
+  });
 }
 
 export async function updateSession(id: string, updates: Partial<Session>): Promise<void> {
-  const data = readDb();
-  const session = data.sessions.find((s) => s.id === id);
-  if (session) {
-    Object.assign(session, updates);
-    writeDb(data);
-  }
+  withLock(() => {
+    const data = readDb();
+    const session = data.sessions.find((s) => s.id === id);
+    if (session) {
+      Object.assign(session, updates);
+      writeDb(data);
+    }
+  });
 }
 
 export async function getSessions(): Promise<Session[]> {
