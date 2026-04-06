@@ -9,7 +9,7 @@ Vibetime wraps Claude Code, Codex, and Gemini and prints a session summary every
 ## Install
 
 ```
-npm install -g vibetime
+npm install -g @iamnotstatic/vibetime
 ```
 
 ## Setup

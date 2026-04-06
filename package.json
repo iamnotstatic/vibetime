@@ -1,5 +1,5 @@
 {
-  "name": "vibetime",
+  "name": "@iamnotstatic/vibetime",
   "version": "0.1.0",
   "description": "Track what you ship in AI coding sessions",
   "type": "module",
