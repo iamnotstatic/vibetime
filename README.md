@@ -1,30 +1,16 @@
 # vibetime
 
-session analytics for the vibe coding era.
+session analytics for the vibe coding era. every time you close a claude code or codex session, vibe prints a summary of what you shipped.
 
-every time you close a claude code or codex session, vibe prints a summary of what you shipped.
+![vibe status](assets/status.png)
 
-```
-╭─────────────────────────────────────────────╮
-│  ◆ vibe  ·  blockradar/api  ·  2h 14m      │
-├─────────────────────────────────────────────┤
-│                                             │
-│  3 commits  ·  +847 −231  ·  12 files      │
-│                                             │
-│  ████████░░  shipped  ✦                     │
-│                                             │
-╰─────────────────────────────────────────────╯
-```
-
-no config. no account. no daemon. your data stays in `~/.vibe/`.
-
-### install
+## install
 
 ```
 npm install -g vibetime
 ```
 
-### setup
+## setup
 
 ```
 vibe init
@@ -32,7 +18,7 @@ vibe init
 
 this adds shell hooks that wrap `claude` and `codex`. the tools work exactly the same — vibe just snapshots your git state before and after each session, then prints the endcard when you're done.
 
-### how it works
+## how it works
 
 1. you type `claude` like normal
 2. vibe records the current git HEAD
@@ -50,7 +36,16 @@ sessions are scored by what happened in git:
 | **exploring** | a few lines touched |
 | **idle** | nothing changed |
 
-### commands
+## share your week
+
+run `vibe share` to see your weekly summary in the terminal, or `vibe share --html` to generate a shareable card.
+
+<p>
+  <img src="assets/share-terminal.png" width="400" alt="vibe share terminal" />
+  <img src="assets/share-card.png" width="400" alt="vibe share html card" />
+</p>
+
+## commands
 
 ```
 vibe status              today's sessions
@@ -61,6 +56,6 @@ vibe config show         current settings
 vibe config set handle   set your @handle
 ```
 
-### license
+## license
 
 MIT
