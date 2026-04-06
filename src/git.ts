@@ -3,9 +3,11 @@ import { basename } from 'node:path';
 
 const SHA_RE = /^[0-9a-f]{4,40}$/;
 
+const GIT_TIMEOUT_MS = 3_000;
+
 function run(cmd: string, cwd?: string) {
   try {
-    return execSync(cmd, { cwd, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+    return execSync(cmd, { cwd, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: GIT_TIMEOUT_MS }).trim();
   } catch {
     return '';
   }

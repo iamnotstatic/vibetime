@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { JSONFilePreset } from 'lowdb/node';
+import { readFileSync, writeFileSync, renameSync, existsSync } from 'node:fs';
 import { VIBE_DIR, ensureVibeDir } from './config.js';
 
 export interface Session {
@@ -23,20 +23,47 @@ interface DbSchema {
 }
 
 const DB_PATH = join(VIBE_DIR, 'sessions.json');
+const TMP_PATH = DB_PATH + '.tmp';
 
-export async function getDb(): Promise<import('lowdb').Low<DbSchema>> {
+function readDb(): DbSchema {
   ensureVibeDir();
-  const db = await JSONFilePreset<DbSchema>(DB_PATH, { sessions: [] });
-  return db;
+  if (!existsSync(DB_PATH)) return { sessions: [] };
+
+  try {
+    const raw = readFileSync(DB_PATH, 'utf-8');
+    const data = JSON.parse(raw);
+    if (Array.isArray(data.sessions)) return data;
+    return { sessions: [] };
+  } catch {
+    const timestamp = Date.now();
+    const corruptPath = `${DB_PATH}.corrupt.${timestamp}`;
+    try { renameSync(DB_PATH, corruptPath); } catch {}
+    console.error(`  vibe: sessions.json was corrupted, moved to ${corruptPath}`);
+    return { sessions: [] };
+  }
+}
+
+function writeDb(data: DbSchema): void {
+  ensureVibeDir();
+  writeFileSync(TMP_PATH, JSON.stringify(data, null, 2) + '\n');
+  renameSync(TMP_PATH, DB_PATH);
 }
 
 export async function addSession(session: Session): Promise<void> {
-  const db = await getDb();
-  db.data.sessions.push(session);
-  await db.write();
+  const data = readDb();
+  data.sessions.push(session);
+  writeDb(data);
+}
+
+export async function updateSession(id: string, updates: Partial<Session>): Promise<void> {
+  const data = readDb();
+  const session = data.sessions.find((s) => s.id === id);
+  if (session) {
+    Object.assign(session, updates);
+    writeDb(data);
+  }
 }
 
 export async function getSessions(): Promise<Session[]> {
-  const db = await getDb();
-  return db.data.sessions;
+  return readDb().sessions;
 }

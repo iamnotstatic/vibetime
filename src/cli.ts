@@ -11,13 +11,20 @@ import chalk from 'chalk';
 import open from 'open';
 
 const PURPLE = chalk.hex('#7C3AED');
+const RED = chalk.hex('#EF4444');
+
+process.on('unhandledRejection', (err) => {
+  const message = err instanceof Error ? err.message : String(err);
+  console.error(`\n  ${RED('✗')} vibe: ${message}\n`);
+  process.exit(1);
+});
 
 const program = new Command();
 
 program
   .name('vibe')
   .description('session analytics for the vibe coding era')
-  .version('0.1.1')
+  .version('0.1.3')
   .enablePositionalOptions();
 
 program

@@ -102,7 +102,7 @@ function getStreak(sessions: Session[]) {
 
 export async function renderTerminalCard(sessions: Session[]): Promise<string> {
   const config = readConfig();
-  const handle = config.handle ? getHandle() : await promptHandle();
+  const handle = config.handle ? getHandle() : process.stdin.isTTY ? await promptHandle() : getHandle();
 
   const week = getWeekRange();
   const weekSessions = getWeekSessions(sessions);
@@ -361,8 +361,8 @@ async function copyCard() {
     btn.textContent = 'copied ✓';
     setTimeout(() => { btn.textContent = 'copy card'; }, 2000);
   } catch (e) {
-    btn.textContent = 'copy failed';
-    setTimeout(() => { btn.textContent = 'copy card'; }, 2000);
+    btn.textContent = 'right-click the card and save as image';
+    setTimeout(() => { btn.textContent = 'copy card'; }, 4000);
   }
 }
 <\/script>
