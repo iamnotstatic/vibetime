@@ -16,6 +16,7 @@ npm install -g vibetime-cli
 
 ```
 vibe init
+source ~/.zshrc   # or ~/.bashrc — or restart your terminal
 ```
 
 Adds shell hooks that wrap `claude`, `codex`, and `gemini`. The tools work exactly the same — Vibetime tracks your git state while you code and prints the endcard when you're done.
