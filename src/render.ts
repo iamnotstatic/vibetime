@@ -85,7 +85,7 @@ export function renderStatus(sessions: Session[]): string {
   const header = `${PURPLE('◆')} vibe  ·  today  ·  ${dateStr}`;
 
   if (sessions.length === 0) {
-    return `\n${header}\n\n  no sessions today. run claude to start tracking.\n`;
+    return `\n${header}\n\n  no sessions today. start a vibe coding session to begin tracking.\n`;
   }
 
   const maxProjectLen = Math.max(...sessions.map(s => truncateProject(s.project).length));
