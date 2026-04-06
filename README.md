@@ -1,6 +1,8 @@
 # Vibetime
 
-Session analytics for the vibe coding era. Every time you close a Claude Code or Codex session, Vibe prints a summary of what you shipped.
+Vibetime is a CLI tool that tracks your AI-assisted coding sessions and shows you what you shipped.
+
+It wraps tools like Claude Code and Codex, runs silently in the background, and prints a beautiful endcard summary every time you close a session. No config, no account, no daemon.
 
 ![vibe status](assets/status.png)
 
