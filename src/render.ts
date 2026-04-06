@@ -22,8 +22,9 @@ export function formatDuration(seconds: number): string {
   return `${m}m`;
 }
 
-function truncateProject(name: string, max = 16) {
-  return name.length <= max ? name : name.slice(0, max - 1) + '…';
+export function truncateProject(name: string, max = 16): string {
+  const display = name.includes('/') ? name.split('/').pop()! : name;
+  return display.length <= max ? display : display.slice(0, max - 1) + '…';
 }
 
 function momentumBar(tier: MomentumTier) {

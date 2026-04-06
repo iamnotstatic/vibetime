@@ -3,7 +3,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Session } from './db.js';
 import { VIBE_DIR, getHandle, readConfig, promptHandle } from './config.js';
-import { formatDuration, stripAnsi, pad } from './render.js';
+import { formatDuration, stripAnsi, pad, truncateProject } from './render.js';
 import type { MomentumTier } from './score.js';
 
 const PURPLE = chalk.hex('#7C3AED');
@@ -150,7 +150,7 @@ export async function renderTerminalCard(sessions: Session[]): Promise<string> {
   const legendLine = `  shipped ×${shippedCount}   progressed ×${progressedCount}   tinkering ×${tinkeringCount}`;
   const legendPadded = pad(legendLine, WIDTH - 2);
 
-  const topName = topProject.name.length > 20 ? topProject.name.slice(0, 19) + '…' : topProject.name;
+  const topName = truncateProject(topProject.name, 20);
   const topLine = `  top project  ${topName}  ${formatDuration(topProject.seconds)}`;
   const topPadded = pad(topLine, WIDTH - 2);
 
