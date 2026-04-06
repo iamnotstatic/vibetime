@@ -1,61 +1,61 @@
-# vibetime
+# Vibetime
 
-session analytics for the vibe coding era. every time you close a claude code or codex session, vibe prints a summary of what you shipped.
+Session analytics for the vibe coding era. Every time you close a Claude Code or Codex session, Vibe prints a summary of what you shipped.
 
 ![vibe status](assets/status.png)
 
-## install
+## Install
 
 ```
 npm install -g vibetime
 ```
 
-## setup
+## Setup
 
 ```
 vibe init
 ```
 
-this adds shell hooks that wrap `claude` and `codex`. the tools work exactly the same — vibe just snapshots your git state before and after each session, then prints the endcard when you're done.
+This adds shell hooks that wrap `claude` and `codex`. The tools work exactly the same — Vibe just snapshots your git state before and after each session, then prints the endcard when you're done.
 
-## how it works
+## How it works
 
-1. you type `claude` like normal
-2. vibe records the current git HEAD
-3. claude runs with full stdio — nothing changes for you
-4. you exit claude
-5. vibe diffs the git state, scores the session, prints the card
+1. You type `claude` like normal
+2. Vibe records the current git HEAD
+3. Claude runs with full stdio — nothing changes for you
+4. You exit Claude
+5. Vibe diffs the git state, scores the session, prints the card
 
-sessions are scored by what happened in git:
+Sessions are scored by what happened in git:
 
-| tier | meaning |
+| Tier | Meaning |
 |------|---------|
-| **shipped** | commits + meaningful changes |
-| **progressed** | commits, small changes |
-| **tinkering** | changes but no commits |
-| **exploring** | a few lines touched |
-| **idle** | nothing changed |
+| **Shipped** | Commits + meaningful changes |
+| **Progressed** | Commits, small changes |
+| **Tinkering** | Changes but no commits |
+| **Exploring** | A few lines touched |
+| **Idle** | Nothing changed |
 
-## share your week
+## Share your week
 
-run `vibe share` to see your weekly summary in the terminal, or `vibe share --html` to generate a shareable card.
+Run `vibe share` to see your weekly summary in the terminal, or `vibe share --html` to generate a shareable card.
 
 <p>
   <img src="assets/share-terminal.png" width="400" alt="vibe share terminal" />
   <img src="assets/share-card.png" width="400" alt="vibe share html card" />
 </p>
 
-## commands
+## Commands
 
 ```
-vibe status              today's sessions
-vibe log                 last 20 sessions
-vibe share               weekly summary card
-vibe share --html        shareable HTML card
-vibe config show         current settings
-vibe config set handle   set your @handle
+vibe status              Today's sessions
+vibe log                 Last 20 sessions
+vibe share               Weekly summary card
+vibe share --html        Shareable HTML card
+vibe config show         Current settings
+vibe config set handle   Set your @handle
 ```
 
-## license
+## License
 
 MIT
