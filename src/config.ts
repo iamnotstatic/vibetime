@@ -4,8 +4,8 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import chalk from 'chalk';
 import { DEFAULT_TOOLS, detectShell, appendHook } from './init.js';
+import { PURPLE } from './colors.js';
 
-const PURPLE = chalk.hex('#7C3AED');
 const RED = chalk.hex('#EF4444');
 
 export interface VibeConfig {

@@ -1,9 +1,7 @@
 import { existsSync, readFileSync, appendFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import chalk from 'chalk';
-
-const PURPLE = chalk.hex('#7C3AED');
+import { PURPLE } from './colors.js';
 
 const HOOK_MARKER = '# vibetime hooks';
 export const DEFAULT_TOOLS = ['claude', 'codex', 'gemini'];
@@ -63,7 +61,7 @@ export function removeShellHooks(): void {
 
   const content = readFileSync(rcFile, 'utf-8');
 
-  // remove the marker block from vibe init
+  const HOOK_RE = /^[a-zA-Z0-9_-]+\(\) \{ vibe __wrap /;
   const lines = content.split('\n');
   const filtered: string[] = [];
   let inBlock = false;
@@ -73,15 +71,17 @@ export function removeShellHooks(): void {
       inBlock = true;
       continue;
     }
-    if (inBlock && line.includes('vibe __wrap')) continue;
-    if (inBlock && line.trim() === '') {
+    if (inBlock) {
+      if (HOOK_RE.test(line)) continue;
+      if (line.trim() === '') {
+        inBlock = false;
+        continue;
+      }
       inBlock = false;
-      continue;
     }
-    inBlock = false;
 
     // remove standalone hooks added via add-tool
-    if (line.includes('vibe __wrap')) continue;
+    if (HOOK_RE.test(line)) continue;
 
     filtered.push(line);
   }

@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { readFileSync, writeFileSync, renameSync, mkdirSync, rmdirSync, unlinkSync, statSync, existsSync } from 'node:fs';
 import { VIBE_DIR, ensureVibeDir } from './config.js';
+import type { MomentumTier } from './score.js';
 
 export interface Session {
   id: string;
@@ -14,7 +15,7 @@ export interface Session {
   linesAdded: number;
   linesRemoved: number;
   filesTouched: number;
-  momentum: string;
+  momentum: MomentumTier;
   exitCode: number;
 }
 
@@ -57,9 +58,13 @@ function releaseLock(): void {
   } catch {}
 }
 
-function withLock<T>(fn: () => T): T {
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function withLock<T>(fn: () => T): Promise<T> {
   const maxRetries = 20;
-  const retryMs = 50;
+  const retryMs = 5;
 
   for (let i = 0; i < maxRetries; i++) {
     if (acquireLock()) {
@@ -69,8 +74,7 @@ function withLock<T>(fn: () => T): T {
         releaseLock();
       }
     }
-    const start = Date.now();
-    while (Date.now() - start < retryMs) { /* spin wait */ }
+    await delay(retryMs);
   }
 
   // fallback: run without lock rather than lose data
@@ -102,7 +106,7 @@ function writeDb(data: DbSchema): void {
 }
 
 export async function addSession(session: Session): Promise<void> {
-  withLock(() => {
+  await withLock(() => {
     const data = readDb();
     data.sessions.push(session);
     writeDb(data);
@@ -110,7 +114,7 @@ export async function addSession(session: Session): Promise<void> {
 }
 
 export async function updateSession(id: string, updates: Partial<Session>): Promise<void> {
-  withLock(() => {
+  await withLock(() => {
     const data = readDb();
     const session = data.sessions.find((s) => s.id === id);
     if (session) {
@@ -120,6 +124,6 @@ export async function updateSession(id: string, updates: Partial<Session>): Prom
   });
 }
 
-export async function getSessions(): Promise<Session[]> {
+export function getSessions(): Session[] {
   return readDb().sessions;
 }

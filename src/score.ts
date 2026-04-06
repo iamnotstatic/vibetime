@@ -14,7 +14,7 @@ export interface Thresholds {
 }
 
 export function scoreSession(session: Scoreable, thresholds: Thresholds): MomentumTier {
-  if (session.exitCode !== 0) return 'interrupted';
+  if (session.exitCode > 0) return 'interrupted';
 
   const hasCommit = session.commits > 0;
   const linesNet = session.linesAdded + session.linesRemoved;

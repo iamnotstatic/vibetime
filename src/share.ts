@@ -3,10 +3,9 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Session } from './db.js';
 import { VIBE_DIR, getHandle, readConfig, promptHandle } from './config.js';
-import { formatDuration, stripAnsi, pad, truncateProject } from './render.js';
-import type { MomentumTier } from './score.js';
+import { formatDuration, pad, truncateProject } from './render.js';
+import { PURPLE } from './colors.js';
 
-const PURPLE = chalk.hex('#7C3AED');
 const PURPLE_MED = chalk.hex('#6D28D9');
 const PURPLE_DARK = chalk.hex('#4C1D95');
 const DIM = chalk.hex('#444444');
@@ -55,7 +54,7 @@ interface TierTime {
 function getTierTimes(sessions: Session[]) {
   const times: TierTime = { shipped: 0, progressed: 0, tinkering: 0, exploring: 0, idle: 0, interrupted: 0 };
   for (const s of sessions) {
-    const tier = s.momentum as MomentumTier;
+    const tier = s.momentum;
     if (tier in times) times[tier] += s.durationSeconds;
   }
   return times;

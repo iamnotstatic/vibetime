@@ -9,8 +9,12 @@ import { wrapTool } from './wrap.js';
 import { initShellHooks, removeShellHooks } from './init.js';
 import chalk from 'chalk';
 import open from 'open';
+import { createRequire } from 'node:module';
+import { PURPLE } from './colors.js';
 
-const PURPLE = chalk.hex('#7C3AED');
+const require = createRequire(import.meta.url);
+const { version } = require('../package.json');
+
 const RED = chalk.hex('#EF4444');
 
 process.on('unhandledRejection', (err) => {
@@ -24,7 +28,7 @@ const program = new Command();
 program
   .name('vibe')
   .description('session analytics for the vibe coding era')
-  .version('0.1.4')
+  .version(version)
   .enablePositionalOptions();
 
 program
@@ -41,7 +45,7 @@ program
   .command('status')
   .description("today's sessions")
   .action(async () => {
-    const sessions = await getSessions();
+    const sessions = getSessions();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
@@ -59,7 +63,7 @@ program
   .command('log')
   .description('full session history')
   .action(async () => {
-    const sessions = await getSessions();
+    const sessions = getSessions();
     const recent = sessions.slice(-20).reverse();
     console.log(renderLog(recent));
   });
@@ -69,7 +73,7 @@ program
   .description("this week's share card")
   .option('--html', 'skip terminal card, open HTML directly')
   .action(async (opts: { html?: boolean }) => {
-    const sessions = await getSessions();
+    const sessions = getSessions();
 
     if (opts.html) {
       const path = writeHtmlCard(sessions);
@@ -85,7 +89,11 @@ program
       return;
     }
 
-    process.stdin.setRawMode(true);
+    try {
+      process.stdin.setRawMode(true);
+    } catch {
+      return;
+    }
     process.stdin.resume();
 
     const timeout = setTimeout(cleanup, 5000);
@@ -121,10 +129,13 @@ configCmd
     const config = readConfig();
     if (key === 'handle') {
       config.handle = value;
-    } else if (key === 'thresholdLines') {
-      config.thresholdLines = parseInt(value, 10);
-    } else if (key === 'thresholdFiles') {
-      config.thresholdFiles = parseInt(value, 10);
+    } else if (key === 'thresholdLines' || key === 'thresholdFiles') {
+      const num = parseInt(value, 10);
+      if (isNaN(num)) {
+        console.log(`\n  ${RED('✗')} ${key} must be a number\n`);
+        return;
+      }
+      config[key] = num;
     } else {
       console.log(`\n  unknown config key: ${key}\n`);
       return;

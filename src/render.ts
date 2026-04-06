@@ -1,8 +1,8 @@
 import chalk from 'chalk';
 import type { Session } from './db.js';
 import { TIER_FILLED, type MomentumTier } from './score.js';
+import { PURPLE } from './colors.js';
 
-const PURPLE = chalk.hex('#7C3AED');
 const DIM = chalk.hex('#444444');
 const WIDTH = 47;
 
@@ -40,7 +40,7 @@ function tierLabel(tier: MomentumTier) {
 export function renderEndcard(session: Session): string {
   const project = truncateProject(session.project);
   const duration = formatDuration(session.durationSeconds);
-  const tier = session.momentum as MomentumTier;
+  const tier = session.momentum;
 
   const headerContent = `  ${PURPLE('◆')} vibe  ·  ${project}  ·  ${duration}`;
   const headerPadded = pad(headerContent, WIDTH - 2);
@@ -95,7 +95,7 @@ export function renderStatus(sessions: Session[]): string {
   const rows = sessions.map((s) => {
     const project = truncateProject(s.project).padEnd(maxProjectLen);
     const duration = formatDuration(s.durationSeconds).padStart(maxDurationLen);
-    const tier = s.momentum as MomentumTier;
+    const tier = s.momentum;
     const icon = tier === 'interrupted' ? '  ⚠' : tier === 'shipped' ? PURPLE('  ✦') : '';
     return `  ${project}  ${DIM(duration)}   ${s.momentum}${icon}`;
   });

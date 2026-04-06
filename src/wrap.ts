@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
 import { addSession, updateSession, type Session } from './db.js';
 import { isGitRepo, getHeadSha, getBranch, getProjectName, getDiffStats } from './git.js';
 import { readConfig } from './config.js';
@@ -26,7 +26,7 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
   const branch = hasGit ? getBranch(cwd) : 'unknown';
   const project = hasGit ? getProjectName(cwd) : cwd.split('/').pop() || 'unknown';
   const config = readConfig();
-  const sessionId = uuidv4();
+  const sessionId = randomUUID();
 
   function snapshot(exitCode: number): Pick<Session, 'endedAt' | 'durationSeconds' | 'commits' | 'linesAdded' | 'linesRemoved' | 'filesTouched' | 'momentum' | 'exitCode'> {
     const endedAt = new Date().toISOString();
@@ -41,7 +41,7 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
   }
 
   // write session immediately so it survives crashes
-  const initial = snapshot(0);
+  const initial = snapshot(-1);
   const session: Session = {
     id: sessionId, tool, project, branch, startedAt,
     ...initial,
@@ -50,7 +50,7 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
 
   // periodic update while the tool runs
   const poll = setInterval(async () => {
-    try { await updateSession(sessionId, snapshot(0)); } catch {}
+    try { await updateSession(sessionId, snapshot(-1)); } catch {}
   }, POLL_INTERVAL_MS);
   poll.unref();
 
