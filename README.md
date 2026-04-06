@@ -1,8 +1,8 @@
-# Vibetime
+# ◆ Vibetime
 
-Vibetime is a CLI tool that tracks your AI-assisted coding sessions and shows you what you shipped.
+Track what you actually ship with AI.
 
-It wraps tools like Claude Code and Codex, runs silently in the background, and prints a beautiful endcard summary every time you close a session. No config, no account, no daemon.
+Vibetime wraps Claude Code and Codex and prints a session summary every time you're done. No config, no account, no daemon.
 
 ![vibe status](assets/status.png)
 
@@ -18,29 +18,37 @@ npm install -g vibetime
 vibe init
 ```
 
-This adds shell hooks that wrap `claude` and `codex`. The tools work exactly the same — Vibe just snapshots your git state before and after each session, then prints the endcard when you're done.
+Adds shell hooks that wrap `claude` and `codex`. The tools work exactly the same — Vibetime just snapshots your git state before and after each session, then prints the endcard when you're done.
 
-## How it works
+## What you get
 
-1. You type `claude` like normal
-2. Vibe records the current git HEAD
-3. Claude runs with full stdio — nothing changes for you
-4. You exit Claude
-5. Vibe diffs the git state, scores the session, prints the card
+Every time you close a Claude Code or Codex session:
+
+```
+╭─────────────────────────────────────────────╮
+│  ◆ vibe  ·  acme/api  ·  2h 14m      │
+├─────────────────────────────────────────────┤
+│                                             │
+│  3 commits  ·  +847 −231  ·  12 files      │
+│                                             │
+│  ████████░░  shipped  ✦                     │
+│                                             │
+╰─────────────────────────────────────────────╯
+```
 
 Sessions are scored by what happened in git:
 
-| Tier | Meaning |
-|------|---------|
-| **Shipped** | Commits + meaningful changes |
-| **Progressed** | Commits, small changes |
-| **Tinkering** | Changes but no commits |
-| **Exploring** | A few lines touched |
-| **Idle** | Nothing changed |
+| tier | bar | meaning |
+|---|---|---|
+| shipped | `████████░░` | commits + meaningful changes |
+| progressed | `██████░░░░` | commits, small changes |
+| tinkering | `████░░░░░░` | changes but no commits |
+| exploring | `██░░░░░░░░` | a few lines touched |
+| idle | `░░░░░░░░░░` | nothing changed |
 
 ## Share your week
 
-Run `vibe share` to see your weekly summary in the terminal, or `vibe share --html` to generate a shareable card.
+Run `vibe share` to print your weekly card. Press `h` to open the HTML version — copy it, screenshot it, post it.
 
 <p>
   <img src="assets/share-terminal.png" width="400" alt="vibe share terminal" />
@@ -50,14 +58,14 @@ Run `vibe share` to see your weekly summary in the terminal, or `vibe share --ht
 ## Commands
 
 ```
-vibe status              Today's sessions
-vibe log                 Last 20 sessions
-vibe share               Weekly summary card
-vibe share --html        Shareable HTML card
-vibe config show         Current settings
-vibe config set handle   Set your @handle
+vibe status              today's sessions
+vibe log                 last 20 sessions
+vibe share               weekly summary card
+vibe share --html        shareable HTML card
+vibe config show         current settings
+vibe config set handle   set your @handle
 ```
 
 ## License
 
-MIT
+[MIT](LICENSE)
