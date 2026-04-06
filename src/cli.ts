@@ -2,7 +2,7 @@
 
 import { Command } from 'commander';
 import { getSessions } from './db.js';
-import { readConfig, writeConfig } from './config.js';
+import { readConfig, writeConfig, addTool } from './config.js';
 import { renderStatus, renderLog } from './render.js';
 import { renderTerminalCard, writeHtmlCard } from './share.js';
 import { wrapTool } from './wrap.js';
@@ -119,6 +119,13 @@ configCmd
     }
     writeConfig(config);
     console.log(`\n  ${key} updated to ${key === 'handle' ? '@' : ''}${value}\n`);
+  });
+
+configCmd
+  .command('add-tool <name>')
+  .description('track a new AI CLI tool')
+  .action(async (name: string) => {
+    await addTool(name);
   });
 
 configCmd

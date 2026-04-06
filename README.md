@@ -55,15 +55,24 @@ Run `vibe share` to print your weekly card. Press `h` to open the HTML version â
   <img src="assets/share-card.png" width="400" alt="vibe share html card" />
 </p>
 
+## Adding more tools
+
+Vibetime wraps any AI CLI. To track a tool not listed above:
+
+```
+vibe config add-tool aider
+```
+
 ## Commands
 
 ```
-vibe status              today's sessions
-vibe log                 last 20 sessions
-vibe share               weekly summary card
-vibe share --html        shareable HTML card
-vibe config show         current settings
-vibe config set handle   set your @handle
+vibe status                  today's sessions
+vibe log                     last 20 sessions
+vibe share                   weekly summary card
+vibe share --html            shareable HTML card
+vibe config show             current settings
+vibe config set handle       set your @handle
+vibe config add-tool <name>  track a new AI CLI tool
 ```
 
 ## License

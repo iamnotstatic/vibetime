@@ -2,6 +2,11 @@ import { join } from 'node:path';
 import { homedir, userInfo } from 'node:os';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
+import chalk from 'chalk';
+import { DEFAULT_TOOLS, detectShell, appendHook } from './init.js';
+
+const PURPLE = chalk.hex('#7C3AED');
+const RED = chalk.hex('#EF4444');
 
 export interface VibeConfig {
   handle?: string;
@@ -43,6 +48,32 @@ export function writeConfig(config: VibeConfig): void {
 export function getHandle(): string {
   const config = readConfig();
   return config.handle || userInfo().username;
+}
+
+export function addTool(name: string): void {
+  if (/\s/.test(name)) {
+    console.log(`\n  ${RED('✗')} tool name must be a single word\n`);
+    return;
+  }
+
+  if (DEFAULT_TOOLS.includes(name)) {
+    console.log(`\n  ${PURPLE('◆')} ${name} is already added by vibe init\n`);
+    return;
+  }
+
+  const { rcFile } = detectShell();
+
+  if (!existsSync(rcFile)) {
+    console.log(`\n  ${RED('✗')} run vibe init first to set up Vibetime.\n`);
+    return;
+  }
+
+  const added = appendHook(name, rcFile);
+  if (added) {
+    console.log(`\n  ${PURPLE('◆')} ${name} added. restart your terminal to start tracking.\n`);
+  } else {
+    console.log(`\n  ${PURPLE('◆')} ${name} is already being tracked.\n`);
+  }
 }
 
 export async function promptHandle(): Promise<string> {
