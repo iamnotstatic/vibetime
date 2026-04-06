@@ -19,6 +19,7 @@ export function formatDuration(seconds: number): string {
   const m = Math.floor((seconds % 3600) / 60);
   if (h > 0 && m > 0) return `${h}h ${m}m`;
   if (h > 0) return `${h}h 0m`;
+  if (m === 0) return '<1m';
   return `${m}m`;
 }
 
