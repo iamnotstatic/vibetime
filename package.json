@@ -1,6 +1,6 @@
 {
   "name": "vibetime-cli",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Track what you ship in AI coding sessions",
   "type": "module",
   "bin": {
