@@ -51,6 +51,8 @@ Sessions are scored by what happened in git:
 
 Run `vibe share` to print your weekly card. Press `h` to open the HTML version — copy it, screenshot it, post it.
 
+Streaks track consecutive days you shipped. If you shipped yesterday but not yet today, your streak shows ⏳ — you still have time.
+
 <p>
   <img src="https://raw.githubusercontent.com/iamnotstatic/vibetime/main/assets/share-terminal.png" width="400" alt="vibe share terminal" />
   <img src="https://raw.githubusercontent.com/iamnotstatic/vibetime/main/assets/share-card.png" width="400" alt="vibe share html card" />
@@ -67,7 +69,7 @@ vibe config add-tool aider
 ## Commands
 
 ```
-vibe status                  today's sessions
+vibe status                  today's sessions (includes active sessions)
 vibe log                     last 20 sessions
 vibe share                   weekly summary card
 vibe share --html            shareable HTML card
@@ -76,6 +78,8 @@ vibe config set handle       set your @handle
 vibe config add-tool <name>  track a new AI CLI tool
 vibe uninstall               remove shell hooks
 ```
+
+Sessions belong to the day they started — a session that runs past midnight appears under the previous day.
 
 ## Uninstall
 
