@@ -6,6 +6,17 @@ import { PURPLE } from './colors.js';
 const HOOK_MARKER = '# vibetime hooks';
 export const DEFAULT_TOOLS = ['claude', 'codex', 'gemini'];
 
+function hookLines(tool: string): string {
+  const lower = tool.toLowerCase();
+  const title = lower.charAt(0).toUpperCase() + lower.slice(1);
+  const upper = lower.toUpperCase();
+  return [
+    `${lower}() { vibe __wrap ${lower} "$@"; }`,
+    `${title}() { vibe __wrap ${lower} "$@"; }`,
+    `${upper}() { vibe __wrap ${lower} "$@"; }`,
+  ].join('\n');
+}
+
 export function detectShell(): { shell: string; rcFile: string } {
   const shellEnv = process.env.SHELL || '/bin/zsh';
   if (shellEnv.includes('zsh')) {
@@ -15,14 +26,14 @@ export function detectShell(): { shell: string; rcFile: string } {
 }
 
 export function appendHook(tool: string, rcFile: string): boolean {
-  const hookLine = `${tool}() { vibe __wrap ${tool} "$@"; }`;
+  const lower = tool.toLowerCase();
 
   if (existsSync(rcFile)) {
     const content = readFileSync(rcFile, 'utf-8');
-    if (content.includes(`vibe __wrap ${tool}`)) return false;
+    if (content.includes(`vibe __wrap ${lower}`)) return false;
   }
 
-  appendFileSync(rcFile, `\n${hookLine}\n`);
+  appendFileSync(rcFile, `\n${hookLines(lower)}\n`);
   return true;
 }
 
@@ -39,7 +50,7 @@ export function initShellHooks(): void {
   }
 
   const block = `\n${HOOK_MARKER}\n` +
-    DEFAULT_TOOLS.map(t => `${t}() { vibe __wrap ${t} "$@"; }`).join('\n') +
+    DEFAULT_TOOLS.map(t => hookLines(t)).join('\n') +
     '\n';
   appendFileSync(rcFile, block);
 
