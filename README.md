@@ -55,7 +55,7 @@ Run `vibe share` to print your weekly card. Press `h` to open the HTML version �
 
 Streaks track consecutive days you shipped. If you shipped yesterday but not yet today, your streak shows ⏳ — you still have time.
 
-<p>
+<p align="center">
   <img src="https://raw.githubusercontent.com/iamnotstatic/vibetime/main/assets/share-terminal.png" width="400" alt="vibe share terminal" />
   <img src="https://raw.githubusercontent.com/iamnotstatic/vibetime/main/assets/share-card.png" width="400" alt="vibe share html card" />
 </p>
