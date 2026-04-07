@@ -27,8 +27,9 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
   const project = hasGit ? getProjectName(cwd) : cwd.split('/').pop() || 'unknown';
   const config = readConfig();
   const sessionId = randomUUID();
+  let lastActivityAt = startedAt;
 
-  function snapshot(exitCode: number): Pick<Session, 'endedAt' | 'durationSeconds' | 'commits' | 'linesAdded' | 'linesRemoved' | 'filesTouched' | 'momentum' | 'exitCode'> {
+  function snapshot(exitCode: number): Pick<Session, 'endedAt' | 'durationSeconds' | 'commits' | 'linesAdded' | 'linesRemoved' | 'filesTouched' | 'momentum' | 'exitCode' | 'lastActivityAt'> {
     const endedAt = new Date().toISOString();
     const durationSeconds = Math.round((new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 1000);
     let diffStats = { commits: 0, linesAdded: 0, linesRemoved: 0, filesTouched: 0 };
@@ -37,7 +38,7 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
       diffStats = getDiffStats(startSha, endSha, cwd);
     }
     const momentum = scoreSession({ ...diffStats, exitCode }, config);
-    return { endedAt, durationSeconds, ...diffStats, momentum, exitCode };
+    return { endedAt, durationSeconds, ...diffStats, momentum, exitCode, lastActivityAt };
   }
 
   // write session immediately so it survives crashes
@@ -48,9 +49,23 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
   };
   try { await addSession(session); } catch {}
 
-  // periodic update while the tool runs
+  // periodic update while the tool runs — track activity for streak accuracy
+  let prevCommits = initial.commits;
+  let prevLinesAdded = initial.linesAdded;
+  let prevLinesRemoved = initial.linesRemoved;
   const poll = setInterval(async () => {
-    try { await updateSession(sessionId, snapshot(-1)); } catch {}
+    try {
+      const snap = snapshot(-1);
+      const hasNewActivity = snap.commits > prevCommits || snap.linesAdded > prevLinesAdded || snap.linesRemoved > prevLinesRemoved;
+      if (hasNewActivity) {
+        lastActivityAt = new Date().toISOString();
+        snap.lastActivityAt = lastActivityAt;
+        prevCommits = snap.commits;
+        prevLinesAdded = snap.linesAdded;
+        prevLinesRemoved = snap.linesRemoved;
+      }
+      await updateSession(sessionId, snap);
+    } catch {}
   }, POLL_INTERVAL_MS);
   poll.unref();
 

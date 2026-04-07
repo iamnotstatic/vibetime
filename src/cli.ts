@@ -53,7 +53,8 @@ program
 
     const todaySessions = sessions.filter((s) => {
       const d = new Date(s.startedAt);
-      return d >= today && d < tomorrow;
+      if (d >= today && d < tomorrow) return true;
+      return s.exitCode === -1;
     });
 
     console.log(renderStatus(todaySessions));

@@ -17,6 +17,7 @@ export interface Session {
   filesTouched: number;
   momentum: MomentumTier;
   exitCode: number;
+  lastActivityAt?: string;
 }
 
 interface DbSchema {

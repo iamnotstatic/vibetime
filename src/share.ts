@@ -60,43 +60,68 @@ function getTierTimes(sessions: Session[]) {
   return times;
 }
 
-function getTopProject(sessions: Session[]) {
-  const map = new Map<string, number>();
+function getTopProjects(sessions: Session[]): { project: string; totalSeconds: number; hasShipped: boolean }[] {
+  const timeMap = new Map<string, number>();
+  const shippedMap = new Map<string, boolean>();
   for (const s of sessions) {
-    map.set(s.project, (map.get(s.project) || 0) + s.durationSeconds);
+    timeMap.set(s.project, (timeMap.get(s.project) || 0) + s.durationSeconds);
+    if (s.momentum === 'shipped') shippedMap.set(s.project, true);
   }
-  let top = { name: 'none', seconds: 0 };
-  for (const [name, seconds] of map) {
-    if (seconds > top.seconds) top = { name, seconds };
-  }
-  return top;
+  return Array.from(timeMap.entries())
+    .map(([project, totalSeconds]) => ({ project, totalSeconds, hasShipped: shippedMap.get(project) || false }))
+    .sort((a, b) => b.totalSeconds - a.totalSeconds || a.project.localeCompare(b.project));
+}
+
+function getActivityDate(s: Session): string {
+  if (s.lastActivityAt) return s.lastActivityAt;
+  return s.exitCode !== -1 ? s.endedAt : s.startedAt;
 }
 
 function getStreak(sessions: Session[]) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const dots: boolean[] = [];
+  const dots: ('shipped' | 'missed' | 'today')[] = [];
   for (let i = 6; i >= 0; i--) {
     const day = new Date(today);
     day.setDate(today.getDate() - i);
     const nextDay = new Date(day);
     nextDay.setDate(day.getDate() + 1);
 
-    const hasShipping = sessions.some((s) => {
+    // completed sessions — credit by startedAt
+    const hasCompleted = sessions.some((s) => {
+      if (s.exitCode === -1) return false;
       const d = new Date(s.startedAt);
       return d >= day && d < nextDay && (s.momentum === 'shipped' || s.momentum === 'progressed');
     });
-    dots.push(hasShipping);
+
+    // active sessions — credit by lastActivityAt
+    const hasActive = !hasCompleted && sessions.some((s) => {
+      if (s.exitCode !== -1) return false;
+      const d = new Date(getActivityDate(s));
+      return d >= day && d < nextDay;
+    });
+
+    if (hasCompleted || hasActive) {
+      dots.push('shipped');
+    } else if (i === 0) {
+      dots.push('today');
+    } else {
+      dots.push('missed');
+    }
   }
+
+  const shippedToday = dots[6] === 'shipped';
+  const shippedYesterday = dots[5] === 'shipped';
+  const shippedDays = dots.filter(d => d === 'shipped').length;
 
   let count = 0;
   for (let i = dots.length - 1; i >= 0; i--) {
-    if (dots[i]) count++;
+    if (dots[i] === 'shipped') count++;
     else break;
   }
 
-  return { dots, count };
+  return { dots, count, shippedToday, shippedYesterday, shippedDays };
 }
 
 export async function renderTerminalCard(sessions: Session[]): Promise<string> {
@@ -107,7 +132,7 @@ export async function renderTerminalCard(sessions: Session[]): Promise<string> {
   const weekSessions = getWeekSessions(sessions);
   const totalSeconds = weekSessions.reduce((sum, s) => sum + s.durationSeconds, 0);
   const tierTimes = getTierTimes(weekSessions);
-  const topProject = getTopProject(weekSessions);
+  const topProjects = getTopProjects(weekSessions);
   const streak = getStreak(sessions);
 
   const displayHandle = handle.length > 13 ? handle.slice(0, 12) + '…' : handle;
@@ -149,18 +174,53 @@ export async function renderTerminalCard(sessions: Session[]): Promise<string> {
   const legendLine = `  shipped ×${shippedCount}   progressed ×${progressedCount}   tinkering ×${tinkeringCount}`;
   const legendPadded = pad(legendLine, WIDTH - 2);
 
-  const topName = truncateProject(topProject.name, 20);
-  const topLine = `  top project  ${topName}  ${formatDuration(topProject.seconds)}`;
-  const topPadded = pad(topLine, WIDTH - 2);
-
-  const streakDots = streak.dots.map(d => d ? PURPLE('◆') : DIM('◇')).join(' ');
-  const streakLine = `  streak  ${streakDots}  ${streak.count} days shipping`;
-  const streakPadded = pad(streakLine, WIDTH - 2);
-
   const side = DIM('│');
   const top = DIM('╭' + '─'.repeat(WIDTH - 2) + '╮');
   const bot = DIM('╰' + '─'.repeat(WIDTH - 2) + '╯');
   const empty = `${side}${' '.repeat(WIDTH - 2)}${side}`;
+
+  const topSection: string[] = [];
+  if (topProjects.length > 0) {
+    const topLabel = `  ${DIM('top projects')}`;
+    topSection.push(`${side}${pad(topLabel, WIDTH - 2)}${side}`);
+    const shown = topProjects.slice(0, 3);
+    const timeCol = 36;
+    for (const p of shown) {
+      const name = truncateProject(p.project, 16);
+      const time = formatDuration(p.totalSeconds);
+      const shipped = p.hasShipped ? `  ${PURPLE('✦')}` : '';
+      const gap = ' '.repeat(Math.max(1, timeCol - 4 - name.length - time.length));
+      const row = `    ${name}${gap}${time}${shipped}`;
+      topSection.push(`${side}${pad(row, WIDTH - 2)}${side}`);
+    }
+    const moreCount = topProjects.length - 3;
+    if (moreCount > 0) {
+      const moreLine = `    ${DIM(`+${moreCount} more`)}`;
+      topSection.push(`${side}${pad(moreLine, WIDTH - 2)}${side}`);
+    }
+  }
+
+  const streakDots = streak.dots.map(d => {
+    if (d === 'shipped') return PURPLE('◆');
+    if (d === 'today') return PURPLE_DARK('◉');
+    return DIM('◇');
+  }).join(' ');
+  let streakLabel: string;
+  if (streak.count === 7) {
+    streakLabel = `perfect week ${PURPLE('✦')}`;
+  } else if (streak.shippedYesterday && !streak.shippedToday) {
+    streakLabel = '⏳';
+  } else if (streak.count > 0) {
+    const dayLabel = streak.count === 1 ? 'day' : 'days';
+    streakLabel = `${streak.count} ${dayLabel} shipping`;
+  } else if (streak.shippedDays > 0) {
+    const dayLabel = streak.shippedDays === 1 ? 'day' : 'days';
+    streakLabel = `${streak.shippedDays} ${dayLabel} shipped this week`;
+  } else {
+    streakLabel = '0 days shipping';
+  }
+  const streakLine = `  streak  ${streakDots}  ${streakLabel}`;
+  const streakPadded = pad(streakLine, WIDTH - 2);
 
   return [
     '',
@@ -171,8 +231,7 @@ export async function renderTerminalCard(sessions: Session[]): Promise<string> {
     empty,
     `${side}${barPadded}${side}`,
     `${side}${legendPadded}${side}`,
-    empty,
-    `${side}${topPadded}${side}`,
+    ...(topSection.length > 0 ? [empty, ...topSection] : []),
     empty,
     `${side}${streakPadded}${side}`,
     empty,
@@ -190,7 +249,7 @@ export function generateHtmlCard(sessions: Session[]): string {
   const weekSessions = getWeekSessions(sessions);
   const totalSeconds = weekSessions.reduce((sum, s) => sum + s.durationSeconds, 0);
   const tierTimes = getTierTimes(weekSessions);
-  const topProject = getTopProject(weekSessions);
+  const topProjects = getTopProjects(weekSessions);
   const streak = getStreak(sessions);
 
   const totalTime = tierTimes.shipped + tierTimes.progressed + tierTimes.tinkering + tierTimes.exploring + tierTimes.idle + tierTimes.interrupted;
@@ -200,11 +259,48 @@ export function generateHtmlCard(sessions: Session[]): string {
   const progressedCount = weekSessions.filter(s => s.momentum === 'progressed').length;
   const tinkeringCount = weekSessions.filter(s => s.momentum === 'tinkering').length;
 
-  const streakDots = streak.dots.map(d =>
-    `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${d ? '#7C3AED' : '#1e1e1e'};margin:0 3px;"></span>`
-  ).join('');
+  const streakDots = streak.dots.map(d => {
+    const color = d === 'shipped' ? '#7C3AED' : d === 'today' ? '#4C1D95' : '#1e1e1e';
+    return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin:0 3px;"></span>`;
+  }).join('');
 
-  const topName = escapeHtml(topProject.name.length > 24 ? topProject.name.slice(0, 23) + '…' : topProject.name);
+  let streakLabel: string;
+  if (streak.count === 7) {
+    streakLabel = 'perfect week ✦';
+  } else if (streak.shippedYesterday && !streak.shippedToday) {
+    streakLabel = '⏳';
+  } else if (streak.count > 0) {
+    const dayLabel = streak.count === 1 ? 'day' : 'days';
+    streakLabel = `${streak.count} ${dayLabel} shipping`;
+  } else if (streak.shippedDays > 0) {
+    const dayLabel = streak.shippedDays === 1 ? 'day' : 'days';
+    streakLabel = `${streak.shippedDays} ${dayLabel} shipped this week`;
+  } else {
+    streakLabel = '0 days shipping';
+  }
+
+  let topProjectsHtml = '';
+  if (topProjects.length > 0) {
+    const shown = topProjects.slice(0, 3);
+    const moreCount = topProjects.length - 3;
+    const projectRows = shown.map((p, i) => {
+      const name = escapeHtml(truncateProject(p.project, 24));
+      const timeColor = p.hasShipped ? '#7C3AED' : '#fff';
+      const shipped = p.hasShipped ? ' <span style="color:#7C3AED;">✦</span>' : '';
+      const borderTop = i > 0 ? 'border-top: 0.5px solid #1e1e1e; padding-top: 8px; margin-top: 8px;' : '';
+      return `      <div style="display:flex;justify-content:space-between;align-items:center;${borderTop}">
+        <span style="color:#ccc;font-size:13px;">${name}</span>
+        <span style="color:${timeColor};font-size:14px;font-weight:500;">${formatDuration(p.totalSeconds)}${shipped}</span>
+      </div>`;
+    }).join('\n');
+    const moreRow = moreCount > 0
+      ? `\n      <div style="border-top:0.5px solid #1e1e1e;padding-top:8px;margin-top:8px;color:#444;font-size:11px;">+${moreCount} more</div>`
+      : '';
+    topProjectsHtml = `  <div class="top-projects">
+    <div class="top-projects-label">top projects</div>
+${projectRows}${moreRow}
+  </div>`;
+  }
   const safeHandle = escapeHtml(handle);
 
   return `<!DOCTYPE html>
@@ -254,10 +350,8 @@ export function generateHtmlCard(sessions: Session[]): string {
   .stat-cell:not(:last-child) { border-right: 0.5px solid #1e1e1e; }
   .stat-value { font-size: 20px; margin-bottom: 2px; }
   .stat-label { color: #444; font-size: 10px; text-transform: uppercase; }
-  .top-project { background: #111; border-radius: 8px; padding: 12px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-  .top-label { color: #444; font-size: 11px; }
-  .top-name { color: #ccc; font-size: 13px; margin-top: 2px; }
-  .top-time { color: #7C3AED; font-size: 14px; font-weight: 500; }
+  .top-projects { background: #111; border-radius: 8px; padding: 12px; margin-bottom: 16px; }
+  .top-projects-label { color: #444; font-size: 11px; text-transform: uppercase; margin-bottom: 8px; }
   .streak { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0; }
   .streak-label { color: #444; font-size: 11px; }
   .streak-right { display: flex; align-items: center; gap: 8px; }
@@ -325,18 +419,12 @@ export function generateHtmlCard(sessions: Session[]): string {
       <div class="stat-label">tinkering</div>
     </div>
   </div>
-  <div class="top-project">
-    <div>
-      <div class="top-label">top project</div>
-      <div class="top-name">${topName}</div>
-    </div>
-    <div class="top-time">${formatDuration(topProject.seconds)}</div>
-  </div>
+${topProjectsHtml}
   <div class="streak">
     <span class="streak-label">shipping streak</span>
     <div class="streak-right">
       ${streakDots}
-      <span class="streak-count">${streak.count} days shipping</span>
+      <span class="streak-count">${streakLabel}</span>
     </div>
   </div>
   <div class="footer">
