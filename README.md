@@ -1,5 +1,9 @@
 <h1 align="center">◆ Vibetime</h1>
 
+<p align="center">
+  <a href="https://www.npmjs.com/package/vibetime-cli"><img src="https://img.shields.io/npm/v/vibetime-cli" alt="npm version" /></a>
+</p>
+
 <p align="center">Track what you actually ship with AI.</p>
 
 <p align="center">Vibetime wraps Claude Code, Codex, and Gemini and prints a session summary every time you're done. No config, no account, no daemon.</p>
@@ -29,10 +33,10 @@ Every time you close a Claude Code, Codex, or Gemini session:
 
 ```
 ╭─────────────────────────────────────────────╮
-│  ◆ vibe  ·  acme/api  ·  2h 14m      │
+│  ◆ vibe  ·  api  ·  2h 14m                  │
 ├─────────────────────────────────────────────┤
 │                                             │
-│  3 commits  ·  +847 −231  ·  12 files      │
+│  3 commits  ·  +847 −231  ·  12 files       │
 │                                             │
 │  ████████░░  shipped  ✦                     │
 │                                             │
