@@ -1,10 +1,12 @@
-# ◆ Vibetime
+<h1 align="center">◆ Vibetime</h1>
 
-Track what you actually ship with AI.
+<p align="center">Track what you actually ship with AI.</p>
 
-Vibetime wraps Claude Code, Codex, and Gemini and prints a session summary every time you're done. No config, no account, no daemon.
+<p align="center">Vibetime wraps Claude Code, Codex, and Gemini and prints a session summary every time you're done. No config, no account, no daemon.</p>
 
-![vibe status](https://raw.githubusercontent.com/iamnotstatic/vibetime/main/assets/status.png)
+<p align="center">
+  <img src="https://raw.githubusercontent.com/iamnotstatic/vibetime/main/assets/status.png" alt="vibe status" />
+</p>
 
 ## Install
 
