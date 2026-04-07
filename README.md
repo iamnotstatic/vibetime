@@ -98,7 +98,7 @@ Vibetime has no telemetry, no network calls, and no account. Everything stays on
 
 It reads **git metadata only** — commit counts, line counts, file counts. It never reads file contents, environment variables, API keys, or anything you type into the wrapped tool. The AI CLI's stdin/stdout are passed straight through via `spawn` with `stdio: 'inherit'`.
 
-All data is stored locally in `~/.vibe/`. The full source is ~400 lines of TypeScript across 9 files.
+All data is stored locally in `~/.vibe/`.
 
 ## License
 
