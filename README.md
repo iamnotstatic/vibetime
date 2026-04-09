@@ -27,6 +27,12 @@ source ~/.zshrc   # or ~/.bashrc — or restart your terminal
 
 Adds shell hooks that wrap `claude`, `codex`, and `gemini`. The tools work exactly the same — Vibetime tracks your git state while you code and prints the endcard when you're done.
 
+**Fish shell** — `vibe init` writes bash/zsh syntax. Fish users should add hooks manually to `~/.config/fish/config.fish`:
+
+```fish
+function claude; vibe __wrap claude $argv; end
+```
+
 ## What you get
 
 Every time you close a Claude Code, Codex, or Gemini session:
@@ -52,6 +58,9 @@ Sessions are scored by what happened in git:
 | tinkering | `████░░░░░░` | changes but no commits |
 | exploring | `██░░░░░░░░` | a few lines touched |
 | idle | `░░░░░░░░░░` | nothing changed |
+| interrupted | `░░░░░░░░░░` | session killed or crashed |
+
+**How duration works** — Vibetime polls your git state every 30 seconds. If no file changes, commits, or staging activity are detected for 30 minutes, the idle time is excluded from your session duration. Laptop sleep and background idle are automatically handled. Non-git projects use wall-clock time.
 
 ## Share your week
 
@@ -80,7 +89,7 @@ vibe log                     last 20 sessions
 vibe share                   weekly summary card
 vibe share --html            shareable HTML card
 vibe config show             current settings
-vibe config set handle       set your @handle
+vibe config set handle <name> set your @handle (shown on share cards)
 vibe config add-tool <name>  track a new AI CLI tool
 vibe uninstall               remove shell hooks
 ```
