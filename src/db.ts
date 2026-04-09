@@ -24,6 +24,8 @@ interface DbSchema {
   sessions: Session[];
 }
 
+export const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
 const DB_PATH = join(VIBE_DIR, 'sessions.json');
 const TMP_PATH = DB_PATH + '.tmp';
 const LOCK_DIR = join(VIBE_DIR, 'sessions.lock');
@@ -127,4 +129,29 @@ export async function updateSession(id: string, updates: Partial<Session>): Prom
 
 export function getSessions(): Session[] {
   return readDb().sessions;
+}
+
+export async function reapOrphanedSessions(): Promise<void> {
+  await withLock(() => {
+    const data = readDb();
+    const now = Date.now();
+    let changed = false;
+
+    for (const s of data.sessions) {
+      if (s.exitCode !== -1) continue;
+
+      const lastMs = new Date(s.lastActivityAt || s.startedAt).getTime();
+      if (now - lastMs <= INACTIVITY_TIMEOUT_MS) continue;
+
+      const startMs = new Date(s.startedAt).getTime();
+      const cappedEndMs = lastMs + INACTIVITY_TIMEOUT_MS;
+      s.durationSeconds = Math.round(Math.max(cappedEndMs - startMs, 0) / 1000);
+      s.endedAt = new Date(cappedEndMs).toISOString();
+      s.exitCode = 1;
+      s.momentum = 'interrupted';
+      changed = true;
+    }
+
+    if (changed) writeDb(data);
+  });
 }

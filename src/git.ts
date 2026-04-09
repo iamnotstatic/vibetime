@@ -63,6 +63,10 @@ function parseNumstat(numstat: string) {
   return { added, removed, files };
 }
 
+export function getWorkingTreeFingerprint(cwd?: string): string {
+  return run('git status --porcelain', cwd);
+}
+
 export function getDiffStats(fromSha: string, toSha: string, cwd?: string): GitDiffStats {
   let commits = 0;
   let linesAdded = 0;

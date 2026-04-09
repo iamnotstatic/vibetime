@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { addSession, updateSession, type Session } from './db.js';
-import { isGitRepo, getHeadSha, getBranch, getProjectName, getDiffStats } from './git.js';
+import { addSession, updateSession, reapOrphanedSessions, INACTIVITY_TIMEOUT_MS, type Session } from './db.js';
+import { isGitRepo, getHeadSha, getBranch, getProjectName, getDiffStats, getWorkingTreeFingerprint } from './git.js';
 import { readConfig } from './config.js';
 import { scoreSession } from './score.js';
 import { renderEndcard } from './render.js';
@@ -28,10 +28,18 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
   const config = readConfig();
   const sessionId = randomUUID();
   let lastActivityAt = startedAt;
+  let totalGapMs = 0;
+  let idleSince = 0;
+
+  await reapOrphanedSessions();
 
   function snapshot(exitCode: number): Pick<Session, 'endedAt' | 'durationSeconds' | 'commits' | 'linesAdded' | 'linesRemoved' | 'filesTouched' | 'momentum' | 'exitCode' | 'lastActivityAt'> {
     const endedAt = new Date().toISOString();
-    const durationSeconds = Math.round((new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 1000);
+    const endMs = new Date(endedAt).getTime();
+    const startMs = new Date(startedAt).getTime();
+    const effectiveGapMs = totalGapMs + (idleSince ? endMs - idleSince : 0);
+    const durationSeconds = Math.round(Math.max(endMs - startMs - effectiveGapMs, 0) / 1000);
+
     let diffStats = { commits: 0, linesAdded: 0, linesRemoved: 0, filesTouched: 0 };
     if (hasGit) {
       const endSha = getHeadSha(cwd);
@@ -47,22 +55,41 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
     id: sessionId, tool, project, branch, startedAt,
     ...initial,
   };
-  try { await addSession(session); } catch {}
+  try { await addSession(session); } catch (e) {
+    console.error(`  vibe: failed to save session — ${e instanceof Error ? e.message : 'unknown error'}`);
+  }
 
-  // periodic update while the tool runs — track activity for streak accuracy
+  // periodic update while the tool runs — track activity for duration accuracy
   let prevCommits = initial.commits;
   let prevLinesAdded = initial.linesAdded;
   let prevLinesRemoved = initial.linesRemoved;
+  let prevTreeState = hasGit ? getWorkingTreeFingerprint(cwd) : '';
   const poll = setInterval(async () => {
     try {
+      const now = Date.now();
+      const lastMs = new Date(lastActivityAt).getTime();
+
+      // detect idle period — only when git provides activity signals
+      if (hasGit && !idleSince && now - lastMs > INACTIVITY_TIMEOUT_MS) {
+        idleSince = lastMs + INACTIVITY_TIMEOUT_MS;
+      }
+
       const snap = snapshot(-1);
-      const hasNewActivity = snap.commits > prevCommits || snap.linesAdded > prevLinesAdded || snap.linesRemoved > prevLinesRemoved;
+      const treeState = hasGit ? getWorkingTreeFingerprint(cwd) : '';
+      const treeChanged = treeState !== prevTreeState;
+      const hasNewActivity = snap.commits > prevCommits || snap.linesAdded > prevLinesAdded || snap.linesRemoved > prevLinesRemoved || treeChanged;
       if (hasNewActivity) {
+        // activity resumed — accumulate any idle gap
+        if (idleSince) {
+          totalGapMs += now - idleSince;
+          idleSince = 0;
+        }
         lastActivityAt = new Date().toISOString();
         snap.lastActivityAt = lastActivityAt;
         prevCommits = snap.commits;
         prevLinesAdded = snap.linesAdded;
         prevLinesRemoved = snap.linesRemoved;
+        prevTreeState = treeState;
       }
       await updateSession(sessionId, snap);
     } catch {}
@@ -75,8 +102,22 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
     clearInterval(poll);
     if (cleaned) process.exit(exitCode);
     cleaned = true;
+
+    // accumulate any trailing idle gap (only when git provides activity signals)
+    const now = Date.now();
+    const lastMs = new Date(lastActivityAt).getTime();
+    if (hasGit && !idleSince && now - lastMs > INACTIVITY_TIMEOUT_MS) {
+      idleSince = lastMs + INACTIVITY_TIMEOUT_MS;
+    }
+    if (idleSince) {
+      totalGapMs += now - idleSince;
+      idleSince = 0;
+    }
+
     const final = snapshot(exitCode);
-    try { await updateSession(sessionId, final); } catch {}
+    try { await updateSession(sessionId, final); } catch (e) {
+      console.error(`  vibe: failed to save session — ${e instanceof Error ? e.message : 'unknown error'}`);
+    }
     if (showEndcard) console.log(renderEndcard({ ...session, ...final }));
     process.exit(exitCode);
   }

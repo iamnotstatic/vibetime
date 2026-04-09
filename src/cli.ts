@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
-import { getSessions } from './db.js';
+import { getSessions, reapOrphanedSessions } from './db.js';
 import { readConfig, writeConfig, addTool } from './config.js';
 import { renderStatus, renderLog } from './render.js';
 import { renderTerminalCard, writeHtmlCard } from './share.js';
@@ -45,6 +45,7 @@ program
   .command('status')
   .description("today's sessions")
   .action(async () => {
+    await reapOrphanedSessions();
     const sessions = getSessions();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -54,7 +55,12 @@ program
     const todaySessions = sessions.filter((s) => {
       const d = new Date(s.startedAt);
       if (d >= today && d < tomorrow) return true;
-      return s.exitCode === -1;
+      // active sessions: only include if last activity was today
+      if (s.exitCode === -1) {
+        const lastActivity = new Date(s.lastActivityAt || s.startedAt);
+        return lastActivity >= today && lastActivity < tomorrow;
+      }
+      return false;
     });
 
     console.log(renderStatus(todaySessions));
@@ -64,6 +70,7 @@ program
   .command('log')
   .description('full session history')
   .action(async () => {
+    await reapOrphanedSessions();
     const sessions = getSessions();
     const recent = sessions.slice(-20).reverse();
     console.log(renderLog(recent));
@@ -74,6 +81,7 @@ program
   .description("this week's share card")
   .option('--html', 'skip terminal card, open HTML directly')
   .action(async (opts: { html?: boolean }) => {
+    await reapOrphanedSessions();
     const sessions = getSessions();
 
     if (opts.html) {
