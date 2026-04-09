@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { homedir, userInfo } from 'node:os';
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, chmodSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import chalk from 'chalk';
 import { DEFAULT_TOOLS, detectShell, appendHook } from './init.js';
@@ -23,7 +23,9 @@ const DEFAULTS: VibeConfig = {
 };
 
 export function ensureVibeDir(): void {
+  const created = !existsSync(VIBE_DIR);
   mkdirSync(VIBE_DIR, { recursive: true });
+  if (created) chmodSync(VIBE_DIR, 0o700);
 }
 
 export function readConfig(): VibeConfig {
