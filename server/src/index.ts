@@ -1,6 +1,7 @@
 import type { Env } from './env.js';
 import { exchangeAuth } from './routes/auth.js';
 import { submitSession } from './routes/sessions.js';
+import { leaderboardJson, leaderboardHtml } from './routes/leaderboard.js';
 import { error } from './http.js';
 
 const CORS_HEADERS = {
@@ -31,6 +32,12 @@ export default {
           return withCors(await exchangeAuth(request, env));
         case 'POST /sessions':
           return withCors(await submitSession(request, env));
+        case 'GET /leaderboard.json':
+          return withCors(await leaderboardJson(request, env));
+        case 'GET /leaderboard':
+          return await leaderboardHtml(request, env);
+        case 'GET /':
+          return Response.redirect(new URL('/leaderboard', request.url).toString(), 302);
         default:
           return withCors(error(404, 'not found'));
       }
