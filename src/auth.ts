@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { chmodSync, existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import open from 'open';
 import { VIBE_DIR, ensureVibeDir } from './config.js';
 import { request, GITHUB_CLIENT_ID, ApiError } from './api.js';
 import { renderLoginPrompt } from './render.js';
@@ -73,6 +74,9 @@ export async function login(): Promise<void> {
 
   const verificationUrl = `${device.verification_uri}?user_code=${encodeURIComponent(device.user_code)}`;
   console.log(renderLoginPrompt(device.user_code, verificationUrl));
+
+  // try to open the browser to the prefilled approval URL; silently fall back to the printed link
+  open(verificationUrl).catch(() => {});
 
   const accessToken = await pollGithub(device);
   if (!accessToken) {

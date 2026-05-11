@@ -1,5 +1,7 @@
 export const API_BASE = process.env.VIBE_API ?? 'https://api.vibetime.club';
 
+export const WEB_BASE = process.env.VIBE_WEB ?? 'https://vibetime.club';
+
 export const GITHUB_CLIENT_ID = process.env.VIBE_GITHUB_CLIENT_ID ?? 'Ov23liTitygBey3l86qT';
 
 interface RequestOptions {
