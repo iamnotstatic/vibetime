@@ -144,11 +144,12 @@ export function renderLoginPrompt(userCode: string, verificationUri: string): st
   ].join('\n');
 }
 
-export function renderLeaderboard(entries: LeaderboardEntry[], currentHandle?: string): string {
+export function renderLeaderboard(entries: LeaderboardEntry[], webUrl: string, currentHandle?: string): string {
   const header = `${PURPLE('◆')} vibe  ·  leaderboard  ·  shipped · last 7d`;
+  const footer = `  ${DIM(webUrl)}`;
 
   if (entries.length === 0) {
-    return `\n${header}\n\n  no shipped sessions yet this week. be the first.\n`;
+    return ['', header, '', '  no shipped sessions yet this week. be the first.', '', footer, ''].join('\n');
   }
 
   const maxHandleLen = Math.max(...entries.map(e => e.handle.length), 8);
@@ -163,7 +164,7 @@ export function renderLeaderboard(entries: LeaderboardEntry[], currentHandle?: s
     return isMe ? PURPLE(line) : line;
   });
 
-  return ['', header, '', ...rows, ''].join('\n');
+  return ['', header, '', ...rows, '', footer, ''].join('\n');
 }
 
 export function renderLog(sessions: Session[]): string {

@@ -10,6 +10,7 @@ import { initShellHooks, removeShellHooks } from './init.js';
 import { login, logout, readAuth } from './auth.js';
 import { fetchLeaderboard } from './leaderboard.js';
 import { flushPendingSubmissions } from './submit.js';
+import { WEB_BASE } from './api.js';
 import chalk from 'chalk';
 import open from 'open';
 import { createRequire } from 'node:module';
@@ -152,7 +153,7 @@ program
     try {
       const data = await fetchLeaderboard();
       const auth = readAuth();
-      console.log(renderLeaderboard(data.entries, auth?.handle));
+      console.log(renderLeaderboard(data.entries, `${WEB_BASE}/leaderboard`, auth?.handle));
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'unknown error';
       console.log(`\n  ${RED('✗')} vibe: could not load leaderboard (${msg})\n`);
