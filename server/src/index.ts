@@ -1,4 +1,5 @@
 import type { Env } from './env.js';
+import { exchangeAuth } from './routes/auth.js';
 import { error } from './http.js';
 
 const CORS_HEADERS = {
@@ -19,8 +20,17 @@ export default {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
+
+    const url = new URL(request.url);
+    const route = `${request.method} ${url.pathname}`;
+
     try {
-      return withCors(error(404, 'not found'));
+      switch (route) {
+        case 'POST /auth/exchange':
+          return withCors(await exchangeAuth(request, env));
+        default:
+          return withCors(error(404, 'not found'));
+      }
     } catch (e) {
       console.error('unhandled error:', e instanceof Error ? e.message : e);
       return withCors(error(500, 'internal error'));
