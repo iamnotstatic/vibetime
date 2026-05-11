@@ -1,5 +1,6 @@
 import type { Env } from './env.js';
 import { exchangeAuth } from './routes/auth.js';
+import { submitSession } from './routes/sessions.js';
 import { error } from './http.js';
 
 const CORS_HEADERS = {
@@ -28,6 +29,8 @@ export default {
       switch (route) {
         case 'POST /auth/exchange':
           return withCors(await exchangeAuth(request, env));
+        case 'POST /sessions':
+          return withCors(await submitSession(request, env));
         default:
           return withCors(error(404, 'not found'));
       }
