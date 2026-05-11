@@ -1,0 +1,21 @@
+name = "vibetime-api"
+main = "src/index.ts"
+compatibility_date = "2025-01-15"
+
+[[routes]]
+pattern = "api.vibetime.club"
+custom_domain = true
+
+[[routes]]
+pattern = "vibetime.club"
+custom_domain = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "vibetime"
+database_id = "afa9ff5f-da16-4b47-9371-81834a60c662"
+migrations_dir = "migrations"
+
+# Secrets (set via `wrangler secret put <NAME>`):
+#   GITHUB_CLIENT_ID — public OAuth client id, used to validate access tokens belong to our app
+#   JWT_SECRET       — 32-byte hex secret used to sign vibetime JWTs

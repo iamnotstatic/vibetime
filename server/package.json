@@ -1,0 +1,18 @@
+{
+  "name": "vibetime-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "migrate:local": "wrangler d1 migrations apply vibetime --local",
+    "migrate:prod": "wrangler d1 migrations apply vibetime"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240620.0",
+    "typescript": "^5.4.0",
+    "wrangler": "^4.0.0"
+  }
+}
