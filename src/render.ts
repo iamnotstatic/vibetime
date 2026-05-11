@@ -118,6 +118,32 @@ export function renderStatus(sessions: Session[]): string {
   ].join('\n');
 }
 
+export function renderLoginPrompt(userCode: string, verificationUri: string): string {
+  const top = DIM('╭' + '─'.repeat(WIDTH - 2) + '╮');
+  const bot = DIM('╰' + '─'.repeat(WIDTH - 2) + '╯');
+  const side = DIM('│');
+  const empty = `${side}${' '.repeat(WIDTH - 2)}${side}`;
+
+  const title = pad(`  ${PURPLE('◆')} vibe  ·  sign in with github`, WIDTH - 2);
+  const code = pad(`  code:  ${PURPLE(userCode)}`, WIDTH - 2);
+
+  return [
+    '',
+    top,
+    `${side}${title}${side}`,
+    empty,
+    `${side}${code}${side}`,
+    empty,
+    bot,
+    '',
+    `  visit: ${verificationUri}`,
+    '',
+    '  waiting for github approval…',
+    '',
+  ].join('\n');
+}
+
+
 export function renderLog(sessions: Session[]): string {
   if (sessions.length === 0) {
     return '\n  no sessions recorded yet.\n';
