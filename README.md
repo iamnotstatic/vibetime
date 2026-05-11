@@ -81,6 +81,26 @@ Vibetime wraps any AI CLI. To track a tool not listed above:
 vibe config add-tool aider
 ```
 
+## Leaderboard (opt-in)
+
+Live at **[vibetime.club/leaderboard](https://vibetime.club/leaderboard)**. Public web view, no CLI required to browse.
+
+```
+vibe login        sign in with github
+vibe leaderboard  view the leaderboard from your terminal
+vibe logout       sign out and stop submitting
+```
+
+The leaderboard ranks users by `shipped` sessions in the last rolling 7 days. Tabs on the web view switch to last 30 days or all time.
+
+Sign-in uses the GitHub device flow: no browser callback, just a short code you paste on github.com. Until you run `vibe login`, no network requests are made.
+
+Once logged in, the endcard renders as usual and the session submits in the background. If you're offline the submit retries at the end of the next session, so anything you ship will eventually appear.
+
+**Submitted fields:** `tool`, `startedAt`, `endedAt`, `durationSeconds`, `commits`, `linesAdded`, `linesRemoved`, `filesTouched`, `momentum`, and a SHA-256 hash of the project name. Branch names, raw repo names, exit codes, and your local handle never leave the machine.
+
+`vibe logout` removes `~/.vibe/auth.json` and submission stops immediately.
+
 ## Commands
 
 ```
@@ -88,6 +108,9 @@ vibe status                  today's sessions (includes active sessions)
 vibe log                     last 20 sessions
 vibe share                   weekly summary card
 vibe share --html            shareable HTML card
+vibe login                   sign in to the leaderboard via github
+vibe logout                  sign out of the leaderboard
+vibe leaderboard             shipped sessions, last 7 days
 vibe config show             current settings
 vibe config set handle <name> set your @handle (shown on share cards)
 vibe config add-tool <name>  track a new AI CLI tool
@@ -107,11 +130,11 @@ npm uninstall -g vibetime-cli
 
 ## Privacy
 
-Vibetime has no telemetry, no network calls, and no account. Everything stays on your machine.
+Vibetime has no telemetry and no account by default. Everything stays on your machine unless you opt in to the leaderboard with `vibe login`.
 
 It reads **git metadata only** — commit counts, line counts, file counts. It never reads file contents, environment variables, API keys, or anything you type into the wrapped tool. The AI CLI's stdin/stdout are passed straight through via `spawn` with `stdio: 'inherit'`.
 
-All data is stored locally in `~/.vibe/`.
+All data is stored locally in `~/.vibe/`. If you've signed in to the leaderboard, see the section above for the exact fields submitted.
 
 ## License
 
