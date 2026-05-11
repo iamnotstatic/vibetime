@@ -3,10 +3,13 @@
 import { Command } from 'commander';
 import { getSessions, reapOrphanedSessions } from './db.js';
 import { readConfig, writeConfig, addTool } from './config.js';
-import { renderStatus, renderLog } from './render.js';
+import { renderStatus, renderLog, renderLeaderboard } from './render.js';
 import { renderTerminalCard, writeHtmlCard } from './share.js';
 import { wrapTool } from './wrap.js';
 import { initShellHooks, removeShellHooks } from './init.js';
+import { login, logout, readAuth } from './auth.js';
+import { fetchLeaderboard } from './leaderboard.js';
+import { flushPendingSubmissions } from './submit.js';
 import chalk from 'chalk';
 import open from 'open';
 import { createRequire } from 'node:module';
@@ -125,6 +128,35 @@ program
         cleanup();
       }
     });
+  });
+
+program
+  .command('login')
+  .description('sign in to the public leaderboard via github')
+  .action(async () => {
+    await login();
+  });
+
+program
+  .command('logout')
+  .description('sign out of the leaderboard')
+  .action(() => {
+    logout();
+  });
+
+program
+  .command('leaderboard')
+  .description('shipped sessions, last 7 days')
+  .action(async () => {
+    await flushPendingSubmissions(1500).catch(() => {});
+    try {
+      const data = await fetchLeaderboard();
+      const auth = readAuth();
+      console.log(renderLeaderboard(data.entries, auth?.handle));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'unknown error';
+      console.log(`\n  ${RED('✗')} vibe: could not load leaderboard (${msg})\n`);
+    }
   });
 
 const configCmd = program

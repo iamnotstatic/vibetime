@@ -18,6 +18,7 @@ export interface Session {
   momentum: MomentumTier;
   exitCode: number;
   lastActivityAt?: string;
+  submittedAt?: string;
 }
 
 interface DbSchema {
@@ -129,6 +130,15 @@ export async function updateSession(id: string, updates: Partial<Session>): Prom
 
 export function getSessions(): Session[] {
   return readDb().sessions;
+}
+
+export async function deleteSession(id: string): Promise<void> {
+  await withLock(() => {
+    const data = readDb();
+    const before = data.sessions.length;
+    data.sessions = data.sessions.filter((s) => s.id !== id);
+    if (data.sessions.length !== before) writeDb(data);
+  });
 }
 
 export async function reapOrphanedSessions(): Promise<void> {

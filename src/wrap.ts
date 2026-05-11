@@ -1,18 +1,27 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { addSession, updateSession, reapOrphanedSessions, INACTIVITY_TIMEOUT_MS, type Session } from './db.js';
+import { addSession, updateSession, deleteSession, reapOrphanedSessions, INACTIVITY_TIMEOUT_MS, type Session } from './db.js';
 import { isGitRepo, getHeadSha, getBranch, getProjectName, getDiffStats, getWorkingTreeFingerprint } from './git.js';
 import { readConfig } from './config.js';
 import { scoreSession } from './score.js';
 import { renderEndcard } from './render.js';
+import { flushPendingSubmissions } from './submit.js';
 
 const POLL_INTERVAL_MS = 30_000;
+
+function reportSpawnError(tool: string, err: NodeJS.ErrnoException): void {
+  if (err.code === 'ENOENT') {
+    process.stderr.write(`${tool}: command not found\n`);
+    return;
+  }
+  console.error(`  vibe: failed to start ${tool}: ${err.message}`);
+}
 
 export async function wrapTool(tool: string, args: string[]): Promise<void> {
   if (process.env.VIBE_SESSION === '1') {
     const child = spawn(tool, args, { stdio: 'inherit' });
-    child.on('error', (err) => {
-      console.error(`  vibe: failed to start ${tool}: ${err.message}`);
+    child.on('error', (err: NodeJS.ErrnoException) => {
+      reportSpawnError(tool, err);
       process.exit(127);
     });
     child.on('close', (code) => process.exit(code ?? 0));
@@ -119,6 +128,7 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
       console.error(`  vibe: failed to save session — ${e instanceof Error ? e.message : 'unknown error'}`);
     }
     if (showEndcard) console.log(renderEndcard({ ...session, ...final }));
+    await flushPendingSubmissions(1500).catch(() => {});
     process.exit(exitCode);
   }
 
@@ -137,8 +147,11 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
   process.on('SIGTERM', forwardSignal);
   process.on('SIGHUP', () => finalize(1, false));
 
-  child.on('error', (err) => {
-    console.error(`  vibe: failed to start ${tool}: ${err.message}`);
+  child.on('error', async (err: NodeJS.ErrnoException) => {
+    reportSpawnError(tool, err);
+    if (err.code === 'ENOENT') {
+      try { await deleteSession(sessionId); } catch {}
+    }
     finalize(127, false);
   });
 

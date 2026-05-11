@@ -1,0 +1,10 @@
+# Copy to .dev.vars for `wrangler dev` (gitignored).
+# Production: set via `wrangler secret put <NAME>` instead.
+
+# Public OAuth client id from https://github.com/settings/developers
+# (must have "Enable Device Flow" checked).
+GITHUB_CLIENT_ID="Iv1.replace-with-your-client-id"
+
+# 32-byte hex secret for signing vibetime JWTs.
+# Generate with: openssl rand -hex 32
+JWT_SECRET="replace-with-32-byte-hex-secret"
