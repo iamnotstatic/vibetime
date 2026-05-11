@@ -2,6 +2,7 @@ import chalk from 'chalk';
 import type { Session } from './db.js';
 import { TIER_FILLED, type MomentumTier } from './score.js';
 import { PURPLE } from './colors.js';
+import type { LeaderboardEntry } from './leaderboard.js';
 
 const DIM = chalk.hex('#444444');
 const WIDTH = 47;
@@ -143,6 +144,27 @@ export function renderLoginPrompt(userCode: string, verificationUri: string): st
   ].join('\n');
 }
 
+export function renderLeaderboard(entries: LeaderboardEntry[], currentHandle?: string): string {
+  const header = `${PURPLE('◆')} vibe  ·  leaderboard  ·  shipped · last 7d`;
+
+  if (entries.length === 0) {
+    return `\n${header}\n\n  no shipped sessions yet this week. be the first.\n`;
+  }
+
+  const maxHandleLen = Math.max(...entries.map(e => e.handle.length), 8);
+  const maxRankLen = String(entries[entries.length - 1].rank).length;
+
+  const rows = entries.map((e) => {
+    const isMe = currentHandle && e.handle.toLowerCase() === currentHandle.toLowerCase();
+    const rank = String(e.rank).padStart(maxRankLen);
+    const handle = e.handle.padEnd(maxHandleLen);
+    const count = String(e.shippedCount).padStart(3);
+    const line = `  ${DIM(rank)}  ${handle}  ${DIM('·')}  ${count} shipped`;
+    return isMe ? PURPLE(line) : line;
+  });
+
+  return ['', header, '', ...rows, ''].join('\n');
+}
 
 export function renderLog(sessions: Session[]): string {
   if (sessions.length === 0) {
