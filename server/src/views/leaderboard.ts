@@ -126,7 +126,7 @@ vibe login</pre>
     td.activity, thead th.col-activity { width: 80px; }
     .heatmap { gap: 2px; }
     .heatmap .cell { width: 8px; height: 8px; }
-    td.who a span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    td.who a span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   }
 </style>
 </head>
