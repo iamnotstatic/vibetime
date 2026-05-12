@@ -23,7 +23,7 @@ interface IncomingSession {
   linesAdded: number;
   linesRemoved: number;
   filesTouched: number;
-  momentum: string;
+  momentum?: string;
 }
 
 function parseSession(raw: unknown): IncomingSession | string {
@@ -39,8 +39,8 @@ function parseSession(raw: unknown): IncomingSession | string {
   if (typeof s.linesAdded !== 'number' || s.linesAdded < 0) return 'invalid linesAdded';
   if (typeof s.linesRemoved !== 'number' || s.linesRemoved < 0) return 'invalid linesRemoved';
   if (typeof s.filesTouched !== 'number' || s.filesTouched < 0) return 'invalid filesTouched';
-  // momentum may still arrive from older clients; we accept it for backward compat but ignore it below
-  if (typeof s.momentum !== 'string' || !VALID_TIERS.has(s.momentum)) return 'invalid momentum';
+  // momentum is now optional — server is authoritative — but validate the shape if old clients still send it
+  if (s.momentum !== undefined && (typeof s.momentum !== 'string' || !VALID_TIERS.has(s.momentum))) return 'invalid momentum';
   return s as unknown as IncomingSession;
 }
 
