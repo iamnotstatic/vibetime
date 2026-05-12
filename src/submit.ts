@@ -23,6 +23,22 @@ function buildPayload(s: Session): Record<string, unknown> {
   };
 }
 
+export async function submitInProgress(session: Session, budgetMs = 1500): Promise<void> {
+  const auth = readAuth();
+  if (!auth) return;
+  if (session.durationSeconds < 60) return;
+  try {
+    await request<{ ok: true; submittedAt: string }>('/sessions', {
+      method: 'POST',
+      body: buildPayload(session),
+      headers: { authorization: `Bearer ${auth.jwt}` },
+      timeoutMs: budgetMs,
+    });
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 401) clearAuth();
+  }
+}
+
 export async function flushPendingSubmissions(budgetMs: number): Promise<void> {
   const auth = readAuth();
   if (!auth) return;

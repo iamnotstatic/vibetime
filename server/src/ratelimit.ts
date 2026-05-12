@@ -1,7 +1,7 @@
 import type { Env } from './env.js';
 
 const WINDOW_SECONDS = 3600;
-const MAX_PER_WINDOW = 30;
+const MAX_PER_WINDOW = 60;
 
 export async function checkAndRecord(env: Env, userGithubId: number): Promise<boolean> {
   const now = Math.floor(Date.now() / 1000);

@@ -5,9 +5,10 @@ import { isGitRepo, getHeadSha, getBranch, getProjectName, getDiffStats, getWork
 import { readConfig } from './config.js';
 import { scoreSession } from './score.js';
 import { renderEndcard } from './render.js';
-import { flushPendingSubmissions } from './submit.js';
+import { flushPendingSubmissions, submitInProgress } from './submit.js';
 
 const POLL_INTERVAL_MS = 30_000;
+const IN_PROGRESS_SUBMIT_INTERVAL_MS = 5 * 60_000;
 
 function reportSpawnError(tool: string, err: NodeJS.ErrnoException): void {
   if (err.code === 'ENOENT') {
@@ -73,6 +74,7 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
   let prevLinesAdded = initial.linesAdded;
   let prevLinesRemoved = initial.linesRemoved;
   let prevTreeState = hasGit ? getWorkingTreeFingerprint(cwd) : '';
+  let lastInProgressSubmitAt = 0;
   const poll = setInterval(async () => {
     try {
       const now = Date.now();
@@ -101,6 +103,14 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
         prevTreeState = treeState;
       }
       await updateSession(sessionId, snap);
+
+      if (snap.momentum === 'shipped') {
+        const sinceLast = Date.now() - lastInProgressSubmitAt;
+        if (lastInProgressSubmitAt === 0 || sinceLast >= IN_PROGRESS_SUBMIT_INTERVAL_MS) {
+          lastInProgressSubmitAt = Date.now();
+          submitInProgress({ ...session, ...snap }).catch(() => {});
+        }
+      }
     } catch {}
   }, POLL_INTERVAL_MS);
   poll.unref();
