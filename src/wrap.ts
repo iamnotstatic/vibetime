@@ -6,6 +6,8 @@ import { readConfig } from './config.js';
 import { scoreSession } from './score.js';
 import { renderEndcard } from './render.js';
 import { flushPendingSubmissions, submitInProgress } from './submit.js';
+import { getRecommendedVersion } from './api.js';
+import { PURPLE } from './colors.js';
 
 const POLL_INTERVAL_MS = 30_000;
 const IN_PROGRESS_SUBMIT_INTERVAL_MS = 5 * 60_000;
@@ -139,6 +141,12 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
     }
     if (showEndcard) console.log(renderEndcard({ ...session, ...final }));
     await flushPendingSubmissions(1500).catch(() => {});
+    if (showEndcard) {
+      const recommended = getRecommendedVersion();
+      if (recommended) {
+        console.log(`  ${PURPLE('◆')} vibe ${recommended} available · run: npm i -g vibetime-cli\n`);
+      }
+    }
     process.exit(exitCode);
   }
 
