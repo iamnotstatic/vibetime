@@ -116,6 +116,7 @@ vibe login</pre>
   footer { color: #444; font-size: 11px; margin-top: 20px; padding-top: 16px; border-top: 1px solid #141414; }
   footer .definition { margin-bottom: 8px; }
   footer a { color: #666; }
+  .links a, .links code { white-space: nowrap; }
   @media (max-width: 600px) {
     body { padding: 20px 12px; }
     tbody td, thead th { padding: 12px 4px; }
@@ -166,7 +167,7 @@ vibe login</pre>
   </div>
   <footer>
     <div class="definition"><strong style="color:#777">shipped</strong> = a session with at least one commit and meaningful changes (≥50 lines or ≥3 files).</div>
-    <div class="links"><a href="https://github.com/iamnotstatic/vibetime">github.com/iamnotstatic/vibetime</a> &nbsp;·&nbsp; <code>npm i -g vibetime-cli</code></div>
+    <div class="links"><a href="https://github.com/iamnotstatic/vibetime">github.com/iamnotstatic/vibetime</a> · <code>npm i -g vibetime-cli</code></div>
   </footer>
 </main>
 </body>
