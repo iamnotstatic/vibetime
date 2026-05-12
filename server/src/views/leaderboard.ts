@@ -117,8 +117,14 @@ vibe login</pre>
   footer .definition { margin-bottom: 8px; }
   footer a { color: #666; }
   @media (max-width: 600px) {
-    td.activity, thead th.col-activity { display: none; }
     body { padding: 20px 12px; }
+    tbody td, thead th { padding: 12px 4px; }
+    td.last, thead th.col-last { display: none; }
+    td.shipped, thead th.col-shipped { width: 60px; font-size: 14px; }
+    td.activity, thead th.col-activity { width: 80px; }
+    .heatmap { gap: 2px; }
+    .heatmap .cell { width: 8px; height: 8px; }
+    td.who a span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   }
 </style>
 </head>
