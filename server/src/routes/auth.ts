@@ -2,7 +2,7 @@ import type { Env } from '../env.js';
 import { error, json } from '../http.js';
 import { signJwt } from '../jwt.js';
 
-const JWT_TTL_SECONDS = 90 * 24 * 60 * 60;
+const JWT_TTL_SECONDS = 365 * 24 * 60 * 60;
 
 interface GithubUser {
   id: number;

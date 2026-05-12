@@ -4,6 +4,9 @@ import { submitSession } from './routes/sessions.js';
 import { leaderboardJson, leaderboardHtml } from './routes/leaderboard.js';
 import { error } from './http.js';
 
+// bump this when a new CLI release should be recommended to clients
+const CLI_RECOMMENDED_VERSION = '0.4.2';
+
 const CORS_HEADERS = {
   'access-control-allow-origin': '*',
   'access-control-allow-methods': 'GET, POST, OPTIONS',
@@ -14,6 +17,7 @@ const CORS_HEADERS = {
 function withCors(res: Response): Response {
   const headers = new Headers(res.headers);
   for (const [k, v] of Object.entries(CORS_HEADERS)) headers.set(k, v);
+  headers.set('x-cli-recommended-version', CLI_RECOMMENDED_VERSION);
   return new Response(res.body, { status: res.status, headers });
 }
 
