@@ -33,6 +33,23 @@ Adds shell hooks that wrap `claude`, `codex`, and `gemini`. The tools work exact
 function claude; vibe __wrap claude $argv; end
 ```
 
+## Track IDE sessions
+
+For GUI-first tools like Cursor, start and stop an IDE session manually:
+
+```
+vibe ide start cursor
+# code in Cursor
+vibe ide stop cursor
+```
+
+IDE sessions use the same git stats and scoring as wrapped CLI sessions, so they appear in `vibe status`, `vibe log`, `vibe share`, and the opt-in leaderboard. If you use another editor, pass its name instead:
+
+```
+vibe ide start code
+vibe ide stop code
+```
+
 ## What you get
 
 Every time you close a Claude Code, Codex, or Gemini session:
@@ -108,6 +125,9 @@ vibe status                  today's sessions (includes active sessions)
 vibe log                     last 20 sessions
 vibe share                   weekly summary card
 vibe share --html            shareable HTML card
+vibe ide start [tool]        start tracking an IDE session (defaults to cursor)
+vibe ide stop [tool]         stop tracking an IDE session
+vibe ide status              active IDE sessions
 vibe login                   sign in to the leaderboard via github
 vibe logout                  sign out of the leaderboard
 vibe leaderboard             shipped sessions, last 7 days

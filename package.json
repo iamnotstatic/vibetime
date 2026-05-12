@@ -17,7 +17,9 @@
     "sessions",
     "claude",
     "codex",
-    "gemini"
+    "gemini",
+    "cursor",
+    "ide"
   ],
   "author": "iamnotstatic",
   "license": "MIT",

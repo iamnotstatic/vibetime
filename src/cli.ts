@@ -10,6 +10,7 @@ import { initShellHooks, removeShellHooks } from './init.js';
 import { login, logout, readAuth } from './auth.js';
 import { fetchLeaderboard } from './leaderboard.js';
 import { flushPendingSubmissions } from './submit.js';
+import { refreshActiveIdeSessions, renderIdeStatus, startIdeSession, stopIdeSession } from './ide.js';
 import { WEB_BASE } from './api.js';
 import chalk from 'chalk';
 import open from 'open';
@@ -50,6 +51,7 @@ program
   .description("today's sessions")
   .action(async () => {
     await reapOrphanedSessions();
+    await refreshActiveIdeSessions();
     const sessions = getSessions();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -75,6 +77,7 @@ program
   .description('full session history')
   .action(async () => {
     await reapOrphanedSessions();
+    await refreshActiveIdeSessions();
     const sessions = getSessions();
     const recent = sessions.slice(-20).reverse();
     console.log(renderLog(recent));
@@ -86,6 +89,7 @@ program
   .option('--html', 'skip terminal card, open HTML directly')
   .action(async (opts: { html?: boolean }) => {
     await reapOrphanedSessions();
+    await refreshActiveIdeSessions();
     const sessions = getSessions();
 
     if (opts.html) {
@@ -158,6 +162,31 @@ program
       const msg = e instanceof Error ? e.message : 'unknown error';
       console.log(`\n  ${RED('✗')} vibe: could not load leaderboard (${msg})\n`);
     }
+  });
+
+const ideCmd = program
+  .command('ide')
+  .description('track IDE sessions like cursor');
+
+ideCmd
+  .command('start [tool]')
+  .description('start tracking an IDE session')
+  .action(async (tool?: string) => {
+    await startIdeSession(tool);
+  });
+
+ideCmd
+  .command('stop [tool]')
+  .description('stop tracking an IDE session')
+  .action(async (tool?: string) => {
+    await stopIdeSession(tool);
+  });
+
+ideCmd
+  .command('status')
+  .description('active IDE sessions')
+  .action(async () => {
+    console.log(await renderIdeStatus());
   });
 
 const configCmd = program

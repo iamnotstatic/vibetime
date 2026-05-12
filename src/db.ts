@@ -19,6 +19,9 @@ export interface Session {
   exitCode: number;
   lastActivityAt?: string;
   submittedAt?: string;
+  sessionKind?: 'cli' | 'ide';
+  cwd?: string;
+  startSha?: string;
 }
 
 interface DbSchema {
@@ -149,6 +152,7 @@ export async function reapOrphanedSessions(): Promise<void> {
 
     for (const s of data.sessions) {
       if (s.exitCode !== -1) continue;
+      if (s.sessionKind === 'ide') continue;
 
       const lastMs = new Date(s.lastActivityAt || s.startedAt).getTime();
       if (now - lastMs <= INACTIVITY_TIMEOUT_MS) continue;
