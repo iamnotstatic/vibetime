@@ -26,13 +26,24 @@ interface DailyCount {
   n: number;
 }
 
+export interface HeatmapDay {
+  day: string;
+  n: number;
+}
+
 export interface LeaderboardEntry {
   rank: number;
   handle: string;
   avatarUrl: string | null;
   shippedCount: number;
   lastShippedAt: string;
-  recentDays: number[];
+  recentDays: HeatmapDay[];
+}
+
+export interface LeaderboardData {
+  entries: LeaderboardEntry[];
+  devCount: number;
+  sessionCount: number;
 }
 
 function parseWindow(value: string | null): Window {
@@ -40,9 +51,17 @@ function parseWindow(value: string | null): Window {
   return 'week';
 }
 
-async function buildEntries(env: Env, window: Window): Promise<LeaderboardEntry[]> {
+async function buildData(env: Env, window: Window): Promise<LeaderboardData> {
   const sinceMs = window === 'all' ? 0 : Date.now() - WINDOWS[window];
   const sinceIso = new Date(sinceMs).toISOString();
+
+  const totalsRes = await env.DB.prepare(
+    `SELECT COUNT(DISTINCT user_github_id) AS dev_count, COUNT(*) AS session_count
+     FROM sessions
+     WHERE momentum = 'shipped' AND started_at > ?`,
+  ).bind(sinceIso).first<{ dev_count: number; session_count: number }>();
+  const devCount = totalsRes?.dev_count ?? 0;
+  const sessionCount = totalsRes?.session_count ?? 0;
 
   const topRes = await env.DB.prepare(
     `SELECT u.github_id, u.handle, u.avatar_url,
@@ -57,7 +76,7 @@ async function buildEntries(env: Env, window: Window): Promise<LeaderboardEntry[
   ).bind(sinceIso).all<LeaderboardRow>();
 
   const rows = topRes.results ?? [];
-  if (rows.length === 0) return [];
+  if (rows.length === 0) return { entries: [], devCount, sessionCount };
 
   const heatmapSince = new Date(Date.now() - HEATMAP_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const placeholders = rows.map(() => '?').join(',');
@@ -83,7 +102,7 @@ async function buildEntries(env: Env, window: Window): Promise<LeaderboardEntry[
     dayKeys.push(d.toISOString().slice(0, 10));
   }
 
-  return rows.map((r, i) => {
+  const entries = rows.map((r, i) => {
     const userDays = dailyByUser.get(r.github_id) ?? new Map();
     return {
       rank: i + 1,
@@ -91,25 +110,29 @@ async function buildEntries(env: Env, window: Window): Promise<LeaderboardEntry[
       avatarUrl: r.avatar_url,
       shippedCount: r.shipped_count,
       lastShippedAt: r.last_shipped_at,
-      recentDays: dayKeys.map((k) => userDays.get(k) ?? 0),
+      recentDays: dayKeys.map((k) => ({ day: k, n: userDays.get(k) ?? 0 })),
     };
   });
+
+  return { entries, devCount, sessionCount };
 }
 
 export async function leaderboardJson(request: Request, env: Env): Promise<Response> {
   const window = parseWindow(new URL(request.url).searchParams.get('window'));
-  const entries = await buildEntries(env, window);
+  const data = await buildData(env, window);
   return json({
     window,
     updatedAt: new Date().toISOString(),
-    entries,
+    devCount: data.devCount,
+    sessionCount: data.sessionCount,
+    entries: data.entries,
   }, { headers: { 'cache-control': 'public, max-age=60' } });
 }
 
 export async function leaderboardHtml(request: Request, env: Env): Promise<Response> {
   const window = parseWindow(new URL(request.url).searchParams.get('window'));
-  const entries = await buildEntries(env, window);
-  return html(renderLeaderboard(entries, window, new Date()), {
+  const data = await buildData(env, window);
+  return html(renderLeaderboard(data, window, new Date()), {
     headers: {
       'cache-control': 'public, max-age=60',
       'content-security-policy': "default-src 'self'; img-src https://avatars.githubusercontent.com; style-src 'unsafe-inline'; base-uri 'self'; form-action 'self'",

@@ -1,4 +1,4 @@
-import type { LeaderboardEntry } from '../routes/leaderboard.js';
+import type { HeatmapDay, LeaderboardData } from '../routes/leaderboard.js';
 
 type Window = 'week' | 'month' | 'all';
 
@@ -18,12 +18,11 @@ function relativeTime(iso: string, now: Date): string {
   return iso.slice(0, 10);
 }
 
-function heatmapCells(recent: number[]): string {
-  return recent.map((n) => {
-    if (n === 0) return `<span class="cell cell-0" aria-hidden="true"></span>`;
-    if (n === 1) return `<span class="cell cell-1" aria-hidden="true"></span>`;
-    if (n <= 3) return `<span class="cell cell-2" aria-hidden="true"></span>`;
-    return `<span class="cell cell-3" aria-hidden="true"></span>`;
+function heatmapCells(recent: HeatmapDay[]): string {
+  return recent.map(({ day, n }) => {
+    const cls = n === 0 ? 'cell-0' : n === 1 ? 'cell-1' : n <= 3 ? 'cell-2' : 'cell-3';
+    const noun = n === 1 ? 'shipped session' : 'shipped sessions';
+    return `<span class="cell ${cls}" title="${escapeHtml(day)} · ${n} ${noun}" aria-hidden="true"></span>`;
   }).join('');
 }
 
@@ -32,15 +31,26 @@ function tab(label: string, value: Window, active: Window): string {
   return `<a class="${cls}" href="/leaderboard?window=${value}">${escapeHtml(label)}</a>`;
 }
 
-const WINDOW_LABEL: Record<Window, string> = {
-  week: 'last 7 days',
-  month: 'last 30 days',
-  all: 'all time',
+const SCALE_WINDOW_LABEL: Record<Window, string> = {
+  week: 'this week',
+  month: 'this month',
+  all: 'all-time',
 };
 
-export function renderLeaderboard(entries: LeaderboardEntry[], window: Window, updatedAt: Date): string {
+export function renderLeaderboard(data: LeaderboardData, window: Window, updatedAt: Date): string {
+  const { entries, devCount, sessionCount } = data;
+  const devNoun = devCount === 1 ? 'developer' : 'developers';
+  const sessionNoun = sessionCount === 1 ? 'shipped session' : 'shipped sessions';
+  const scaleLine = entries.length === 0
+    ? ''
+    : `<p class="scale"><strong>${devCount}</strong> ${devNoun} · <strong>${sessionCount}</strong> ${sessionNoun} ${escapeHtml(SCALE_WINDOW_LABEL[window])}</p>`;
   const tableRows = entries.length === 0
-    ? `<tr><td colspan="5" class="empty">no shipped sessions ${escapeHtml(WINDOW_LABEL[window])} yet</td></tr>`
+    ? `<tr><td colspan="5" class="empty">
+        <div class="empty-msg">nothing shipped. yet.</div>
+        <pre class="empty-cmd">npm i -g vibetime-cli
+vibe init
+vibe login</pre>
+      </td></tr>`
     : entries.map((e) => {
         const handle = escapeHtml(e.handle);
         const avatar = e.avatarUrl
@@ -51,7 +61,7 @@ export function renderLeaderboard(entries: LeaderboardEntry[], window: Window, u
           <td class="${rankClass}">${e.rank}</td>
           <td class="who"><a href="https://github.com/${handle}" rel="nofollow noopener">${avatar}<span>${handle}</span></a></td>
           <td class="shipped">${e.shippedCount}</td>
-          <td class="activity"><span class="heatmap" title="shipped sessions, last 7 days">${heatmapCells(e.recentDays)}</span></td>
+          <td class="activity"><span class="heatmap">${heatmapCells(e.recentDays)}</span></td>
           <td class="last">${escapeHtml(relativeTime(e.lastShippedAt, updatedAt))}</td>
         </tr>`;
       }).join('');
@@ -69,36 +79,42 @@ export function renderLeaderboard(entries: LeaderboardEntry[], window: Window, u
   main { max-width: 760px; margin: 0 auto; }
   header { margin-bottom: 24px; }
   h1 { font-size: 18px; margin: 0; color: #a78bfa; font-weight: 600; letter-spacing: 0.5px; }
+  .tagline { color: #999; font-size: 13px; margin: 6px 0 0; }
+  .scale { color: #888; font-size: 12px; margin: 6px 0 0; }
+  .scale strong { color: #c4b5fd; font-weight: 600; font-variant-numeric: tabular-nums; }
   .sub { color: #666; font-size: 12px; margin: 4px 0 0; }
   .tabs { display: flex; gap: 4px; margin: 20px 0 16px; border-bottom: 1px solid #1a1a1a; }
   .tab { color: #666; text-decoration: none; padding: 8px 12px; font-size: 13px; border-bottom: 2px solid transparent; margin-bottom: -1px; }
   .tab:hover { color: #a78bfa; }
   .tab-active { color: #e5e5e5; border-bottom-color: #a78bfa; }
   table { width: 100%; border-collapse: collapse; }
-  thead th { text-align: left; padding: 8px 8px 12px; color: #555; font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.6px; border-bottom: 1px solid #1a1a1a; }
+  thead th { text-align: left; padding: 8px 8px 12px; color: #555; font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.6px; white-space: nowrap; border-bottom: 1px solid #1a1a1a; }
   thead th.col-rank, thead th.col-shipped { text-align: right; }
   thead th.col-last { text-align: right; }
   tbody td { padding: 12px 8px; border-bottom: 1px solid #141414; font-size: 14px; vertical-align: middle; }
   tbody tr:hover td { background: #111; }
   td.rank { width: 44px; color: #666; text-align: right; font-variant-numeric: tabular-nums; }
   td.rank-top { color: #a78bfa; font-weight: 600; }
-  td.shipped { width: 80px; text-align: right; color: #a78bfa; font-variant-numeric: tabular-nums; font-weight: 600; }
+  td.shipped { width: 80px; text-align: right; color: #a78bfa; font-variant-numeric: tabular-nums; font-weight: 600; font-size: 16px; }
   td.activity { width: 110px; }
   td.last { width: 100px; text-align: right; color: #666; font-size: 12px; font-variant-numeric: tabular-nums; }
   td.who a { color: #e5e5e5; text-decoration: none; display: flex; align-items: center; gap: 10px; }
   td.who a:hover { color: #a78bfa; }
   td.who img, .avatar-fallback { border-radius: 50%; display: block; width: 24px; height: 24px; }
   .avatar-fallback { background: #1a1a1a; }
-  td.empty { text-align: center; color: #555; padding: 40px 0; }
+  td.empty { text-align: center; color: #666; padding: 40px 16px; }
+  .empty-msg { margin-bottom: 16px; }
+  .empty-cmd { color: #a78bfa; background: #111; padding: 10px 14px; border-radius: 4px; display: inline-block; margin: 0; font-family: inherit; font-size: 13px; text-align: left; }
+  .legend { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin: 12px 0 0; color: #555; font-size: 11px; }
+  .legend .cell { width: 8px; height: 8px; }
   .heatmap { display: inline-flex; gap: 3px; }
   .cell { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
   .cell-0 { background: #1a1a1a; }
   .cell-1 { background: #3b2a5d; }
   .cell-2 { background: #6d4ec8; }
   .cell-3 { background: #a78bfa; }
-  footer { color: #444; font-size: 11px; margin-top: 32px; padding-top: 16px; border-top: 1px solid #141414; }
+  footer { color: #444; font-size: 11px; margin-top: 20px; padding-top: 16px; border-top: 1px solid #141414; }
   footer .definition { margin-bottom: 8px; }
-  footer .links { text-align: center; }
   footer a { color: #666; }
   @media (max-width: 600px) {
     td.activity, thead th.col-activity { display: none; }
@@ -110,7 +126,9 @@ export function renderLeaderboard(entries: LeaderboardEntry[], window: Window, u
 <main>
   <header>
     <h1>◆ vibetime · leaderboard</h1>
-    <p class="sub">shipped sessions · updated ${updatedAt.toISOString().slice(0, 16).replace('T', ' ')}Z</p>
+    <p class="tagline">ranked by what you ship</p>
+    ${scaleLine}
+    <p class="sub">updated ${updatedAt.toISOString().slice(0, 16).replace('T', ' ')}Z</p>
   </header>
   <nav class="tabs">
     ${tab('this week', 'week', window)}
@@ -123,7 +141,7 @@ export function renderLeaderboard(entries: LeaderboardEntry[], window: Window, u
         <th class="col-rank">#</th>
         <th class="col-developer">developer</th>
         <th class="col-shipped">shipped</th>
-        <th class="col-activity">activity</th>
+        <th class="col-activity">last 7 days</th>
         <th class="col-last">last shipped</th>
       </tr>
     </thead>
@@ -131,8 +149,16 @@ export function renderLeaderboard(entries: LeaderboardEntry[], window: Window, u
       ${tableRows}
     </tbody>
   </table>
+  <div class="legend" aria-hidden="true">
+    last 7 days: less
+    <span class="cell cell-0"></span>
+    <span class="cell cell-1"></span>
+    <span class="cell cell-2"></span>
+    <span class="cell cell-3"></span>
+    more
+  </div>
   <footer>
-    <div class="definition"><strong style="color:#777">shipped</strong> = a session with at least one commit and meaningful changes (≥50 lines or ≥3 files). <strong style="color:#777">activity</strong> shows the last 7 days regardless of the tab selected.</div>
+    <div class="definition"><strong style="color:#777">shipped</strong> = a session with at least one commit and meaningful changes (≥50 lines or ≥3 files).</div>
     <div class="links"><a href="https://github.com/iamnotstatic/vibetime">github.com/iamnotstatic/vibetime</a> &nbsp;·&nbsp; <code>npm i -g vibetime-cli</code></div>
   </footer>
 </main>
