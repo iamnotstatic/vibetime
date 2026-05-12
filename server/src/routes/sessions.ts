@@ -2,6 +2,7 @@ import type { Env } from '../env.js';
 import { error, json } from '../http.js';
 import { requireAuth } from '../auth-middleware.js';
 import { checkAndRecord } from '../ratelimit.js';
+import { scoreSession } from '../score.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VALID_TIERS = new Set(['shipped', 'progressed', 'tinkering', 'exploring', 'idle', 'interrupted']);
@@ -38,6 +39,7 @@ function parseSession(raw: unknown): IncomingSession | string {
   if (typeof s.linesAdded !== 'number' || s.linesAdded < 0) return 'invalid linesAdded';
   if (typeof s.linesRemoved !== 'number' || s.linesRemoved < 0) return 'invalid linesRemoved';
   if (typeof s.filesTouched !== 'number' || s.filesTouched < 0) return 'invalid filesTouched';
+  // momentum may still arrive from older clients; we accept it for backward compat but ignore it below
   if (typeof s.momentum !== 'string' || !VALID_TIERS.has(s.momentum)) return 'invalid momentum';
   return s as unknown as IncomingSession;
 }
@@ -64,7 +66,15 @@ export async function submitSession(request: Request, env: Env): Promise<Respons
 
   if (!(await checkAndRecord(env, auth.sub))) return error(429, 'rate limit exceeded');
 
-  if (parsed.momentum === 'shipped') {
+  // server is authoritative for momentum — recompute from raw stats and ignore whatever the client sent
+  const momentum = scoreSession({
+    commits: parsed.commits,
+    linesAdded: parsed.linesAdded,
+    linesRemoved: parsed.linesRemoved,
+    filesTouched: parsed.filesTouched,
+  });
+
+  if (momentum === 'shipped') {
     const since = new Date(Date.now() - SHIPPED_WINDOW_MS).toISOString();
     const existing = await env.DB.prepare(
       `SELECT COUNT(*) AS n FROM sessions WHERE user_github_id = ? AND momentum = 'shipped' AND started_at >= ? AND id != ?`,
@@ -93,7 +103,7 @@ export async function submitSession(request: Request, env: Env): Promise<Respons
   ).bind(
     parsed.id, auth.sub, parsed.tool, parsed.projectHash, parsed.startedAt, parsed.endedAt,
     parsed.durationSeconds, parsed.commits, parsed.linesAdded, parsed.linesRemoved,
-    parsed.filesTouched, parsed.momentum, submittedAt,
+    parsed.filesTouched, momentum, submittedAt,
   ).run();
 
   await env.DB.prepare(`UPDATE users SET last_seen_at = ? WHERE github_id = ?`).bind(submittedAt, auth.sub).run();
