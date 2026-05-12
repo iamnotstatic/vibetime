@@ -120,7 +120,8 @@ vibe login</pre>
     body { padding: 20px 12px; }
     tbody td, thead th { padding: 12px 4px; }
     td.last, thead th.col-last { display: none; }
-    td.shipped, thead th.col-shipped { width: 60px; font-size: 14px; }
+    td.shipped, thead th.col-shipped { width: 60px; }
+    td.shipped { font-size: 14px; }
     td.activity, thead th.col-activity { width: 80px; }
     .heatmap { gap: 2px; }
     .heatmap .cell { width: 8px; height: 8px; }
