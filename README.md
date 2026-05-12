@@ -6,7 +6,7 @@
 
 <p align="center">Track what you actually ship with AI.</p>
 
-<p align="center">Vibetime wraps Claude Code, Codex, and Gemini and prints a session summary every time you're done. No config, no account, no daemon.</p>
+<p align="center">Vibetime wraps Claude Code, Codex, and Gemini and prints a session summary every time you're done. No config, no daemon, no account by default.</p>
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/iamnotstatic/vibetime/main/assets/status.png" alt="vibe status" />
@@ -49,6 +49,8 @@ Every time you close a Claude Code, Codex, or Gemini session:
 ╰─────────────────────────────────────────────╯
 ```
 
+Every `shipped` session counts on the leaderboard.
+
 Sessions are scored by what happened in git:
 
 | tier | bar | meaning |
@@ -61,25 +63,6 @@ Sessions are scored by what happened in git:
 | interrupted | `░░░░░░░░░░` | session killed or crashed |
 
 **How duration works** — Vibetime polls your git state every 30 seconds. If no file changes, commits, or staging activity are detected for 30 minutes, the idle time is excluded from your session duration. Laptop sleep and background idle are automatically handled. Non-git projects use wall-clock time.
-
-## Share your week
-
-Run `vibe share` to print your weekly card. Press `h` to open the HTML version — copy it, screenshot it, post it.
-
-Streaks track consecutive days you shipped. If you shipped yesterday but not yet today, your streak shows ⏳ — you still have time.
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/iamnotstatic/vibetime/main/assets/share-terminal.png" width="400" alt="vibe share terminal" />
-  <img src="https://raw.githubusercontent.com/iamnotstatic/vibetime/main/assets/share-card.png" width="400" alt="vibe share html card" />
-</p>
-
-## Adding more tools
-
-Vibetime wraps any AI CLI. To track a tool not listed above:
-
-```
-vibe config add-tool aider
-```
 
 ## Leaderboard (opt-in)
 
@@ -100,6 +83,25 @@ Once logged in, the endcard renders as usual and the session submits in the back
 **Submitted fields:** `tool`, `startedAt`, `endedAt`, `durationSeconds`, `commits`, `linesAdded`, `linesRemoved`, `filesTouched`, `momentum`, and a SHA-256 hash of the project name. Branch names, raw repo names, exit codes, and your local handle never leave the machine.
 
 `vibe logout` removes `~/.vibe/auth.json` and submission stops immediately.
+
+## Share your week
+
+Run `vibe share` to print your weekly card. Press `h` to open the HTML version — copy it, screenshot it, post it.
+
+Streaks track consecutive days you shipped. If you shipped yesterday but not yet today, your streak shows ⏳ — you still have time.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/iamnotstatic/vibetime/main/assets/share-terminal.png" width="400" alt="vibe share terminal" />
+  <img src="https://raw.githubusercontent.com/iamnotstatic/vibetime/main/assets/share-card.png" width="400" alt="vibe share html card" />
+</p>
+
+## Adding more tools
+
+Vibetime wraps any AI CLI. To track a tool not listed above:
+
+```
+vibe config add-tool aider
+```
 
 ## Commands
 
