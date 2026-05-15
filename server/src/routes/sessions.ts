@@ -7,7 +7,7 @@ import { scoreSession } from '../score.js';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VALID_TIERS = new Set(['shipped', 'progressed', 'tinkering', 'exploring', 'idle', 'interrupted']);
 const VALID_TOOLS_RE = /^[a-z][a-z0-9_-]{0,31}$/i;
-const MAX_AGE_MS = 48 * 60 * 60 * 1000;
+const MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 const MIN_DURATION_S = 60;
 const DAILY_SHIPPED_CAP = 10;
 const SHIPPED_WINDOW_MS = 24 * 60 * 60 * 1000;

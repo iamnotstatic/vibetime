@@ -58,7 +58,7 @@ async function buildData(env: Env, window: Window): Promise<LeaderboardData> {
   const totalsRes = await env.DB.prepare(
     `SELECT COUNT(DISTINCT user_github_id) AS dev_count, COUNT(*) AS session_count
      FROM sessions
-     WHERE momentum = 'shipped' AND started_at > ?`,
+     WHERE momentum = 'shipped' AND ended_at > ?`,
   ).bind(sinceIso).first<{ dev_count: number; session_count: number }>();
   const devCount = totalsRes?.dev_count ?? 0;
   const sessionCount = totalsRes?.session_count ?? 0;
@@ -66,10 +66,10 @@ async function buildData(env: Env, window: Window): Promise<LeaderboardData> {
   const topRes = await env.DB.prepare(
     `SELECT u.github_id, u.handle, u.avatar_url,
             COUNT(*) AS shipped_count,
-            MAX(s.started_at) AS last_shipped_at,
+            MAX(s.ended_at) AS last_shipped_at,
             MIN(s.started_at) AS first_at
      FROM sessions s JOIN users u ON s.user_github_id = u.github_id
-     WHERE s.momentum = 'shipped' AND s.started_at > ?
+     WHERE s.momentum = 'shipped' AND s.ended_at > ?
      GROUP BY u.github_id
      ORDER BY shipped_count DESC, first_at ASC
      LIMIT 100`,
@@ -81,9 +81,9 @@ async function buildData(env: Env, window: Window): Promise<LeaderboardData> {
   const heatmapSince = new Date(Date.now() - HEATMAP_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const placeholders = rows.map(() => '?').join(',');
   const dailyRes = await env.DB.prepare(
-    `SELECT user_github_id, date(started_at) AS day, COUNT(*) AS n
+    `SELECT user_github_id, date(ended_at) AS day, COUNT(*) AS n
      FROM sessions
-     WHERE momentum = 'shipped' AND started_at > ? AND user_github_id IN (${placeholders})
+     WHERE momentum = 'shipped' AND ended_at > ? AND user_github_id IN (${placeholders})
      GROUP BY user_github_id, day`,
   ).bind(heatmapSince, ...rows.map((r) => r.github_id)).all<DailyCount>();
 
