@@ -8,7 +8,7 @@
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
     "migrate:local": "wrangler d1 migrations apply vibetime --local",
-    "migrate:prod": "wrangler d1 migrations apply vibetime"
+    "migrate:prod": "wrangler d1 migrations apply vibetime --remote"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240620.0",
