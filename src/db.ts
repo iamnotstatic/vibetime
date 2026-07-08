@@ -19,6 +19,10 @@ export interface Session {
   exitCode: number;
   lastActivityAt?: string;
   submittedAt?: string;
+  // HEAD sha when the session started. Hook-tracked sessions (Claude Code Desktop)
+  // record start and end in separate processes, so the baseline sha is persisted
+  // here rather than held in memory like the shell-wrapped flow.
+  startSha?: string;
 }
 
 interface DbSchema {

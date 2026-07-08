@@ -7,6 +7,8 @@ import { renderStatus, renderLog, renderLeaderboard } from './render.js';
 import { renderTerminalCard, writeHtmlCard } from './share.js';
 import { wrapTool } from './wrap.js';
 import { initShellHooks, removeShellHooks } from './init.js';
+import { installClaudeHooks, removeClaudeHooks } from './claude-hooks.js';
+import { handleHook } from './hook.js';
 import { login, logout, readAuth } from './auth.js';
 import { fetchLeaderboard } from './leaderboard.js';
 import { flushPendingSubmissions } from './submit.js';
@@ -44,6 +46,20 @@ program
   .command('uninstall')
   .description('remove shell hooks')
   .action(removeShellHooks);
+
+const hooksCmd = program
+  .command('hooks')
+  .description('track Claude Code Desktop via session hooks');
+
+hooksCmd
+  .command('install')
+  .description('track Claude Code Desktop sessions (no shell wrapper needed)')
+  .action(installClaudeHooks);
+
+hooksCmd
+  .command('uninstall')
+  .description('stop tracking Claude Code Desktop sessions')
+  .action(removeClaudeHooks);
 
 program
   .command('status')
@@ -215,5 +231,32 @@ program
   .action(async (tool: string, args: string[]) => {
     await wrapTool(tool, args);
   });
+
+// Invoked by Claude Code hooks with the event payload on stdin. Must stay silent
+// on stdout (SessionStart stdout is fed to the model) and always exit cleanly so
+// it can never interfere with the user's session.
+program
+  .command('__hook', { hidden: true })
+  .argument('<event>', 'session-start | activity | session-end')
+  .helpOption(false)
+  .action(async (event: string) => {
+    try {
+      await handleHook(event, await readStdin());
+    } catch {}
+    process.exit(0);
+  });
+
+function readStdin(): Promise<string> {
+  return new Promise((resolve) => {
+    if (process.stdin.isTTY) return resolve('');
+    let data = '';
+    process.stdin.setEncoding('utf-8');
+    process.stdin.on('data', (chunk) => (data += chunk));
+    process.stdin.on('end', () => resolve(data));
+    process.stdin.on('error', () => resolve(data));
+    // never hang a session waiting on stdin
+    setTimeout(() => resolve(data), 2000).unref();
+  });
+}
 
 program.parse();
