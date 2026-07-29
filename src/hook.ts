@@ -38,6 +38,19 @@ function diffFor(session: Session, cwd: string): GitDiffStats {
   return getDiffStats(session.startSha, getHeadSha(cwd), cwd);
 }
 
+// The shared reaper (reapOrphanedSessions) finalizes any idle in-progress
+// session as `interrupted` after 30 minutes — it runs on every vibe status/log/
+// share and inside onSessionStart. Terminal sessions survive it because their
+// poller rewrites the row every 30s; a hook session only writes on hook events,
+// so a Desktop session idle over a lunch break gets reaped mid-flight. When the
+// user comes back and ships, we must reopen it — otherwise the later activity
+// and session-end events bail on the `exitCode !== -1` guard and the session is
+// frozen as interrupted with the work lost. A normally-ended hook session has
+// exitCode 0 and never scores `interrupted`, so this only matches the reaper.
+function wasReapedInterrupted(session: Session): boolean {
+  return session.exitCode !== -1 && session.momentum === 'interrupted';
+}
+
 export async function handleHook(event: string, raw: string): Promise<void> {
   // The shell wrapper (`vibe __wrap`) already tracks its child session end to
   // end and marks it with VIBE_SESSION=1. Claude Code fires these hooks inside
@@ -98,18 +111,32 @@ async function onSessionStart(sessionId: string, cwd: string): Promise<void> {
 
 async function onActivity(sessionId: string, cwd: string): Promise<void> {
   const session = getSessions().find((s) => s.id === sessionId);
-  if (!session || session.exitCode !== -1) return; // only live sessions
+  if (!session) return;
+
+  const reopening = wasReapedInterrupted(session);
+  if (session.exitCode !== -1 && !reopening) return; // finalized normally — ignore late events
 
   const now = Date.now();
   const lastMs = new Date(session.lastActivityAt || session.startedAt).getTime();
   const gap = Math.max(now - lastMs, 0);
 
   const updates: Partial<Session> = {
-    durationSeconds: session.durationSeconds + activeSecondsSince(session.lastActivityAt, session.startedAt, now),
+    // On reopen, restart the active-time clock from now so the idle gap that
+    // tripped the reaper isn't counted; the reaper already capped the duration.
+    durationSeconds: session.durationSeconds + (reopening ? 0 : activeSecondsSince(session.lastActivityAt, session.startedAt, now)),
     lastActivityAt: new Date(now).toISOString(),
   };
 
-  if (gap >= GIT_REFRESH_MS) {
+  if (reopening) {
+    // Bring the session back to live and clear the interrupted submission so the
+    // corrected final state resubmits — the server upserts on id, so it's safe.
+    updates.exitCode = -1;
+    updates.submittedAt = undefined;
+  }
+
+  // Refresh git stats on reopen (to recover work shipped before the reap) and
+  // otherwise only past the throttle window.
+  if (reopening || gap >= GIT_REFRESH_MS) {
     const stats = diffFor(session, cwd);
     Object.assign(updates, stats);
     updates.momentum = scoreSession({ ...stats, exitCode: -1 }, readConfig());
@@ -122,7 +149,10 @@ async function onActivity(sessionId: string, cwd: string): Promise<void> {
 
 async function onSessionEnd(sessionId: string, cwd: string): Promise<void> {
   const session = getSessions().find((s) => s.id === sessionId);
-  if (!session || session.exitCode !== -1) return; // unknown or already finalized
+  if (!session) return;
+
+  const reopening = wasReapedInterrupted(session);
+  if (session.exitCode !== -1 && !reopening) return; // unknown or already finalized normally
 
   const now = Date.now();
   const stats = diffFor(session, cwd);
@@ -130,11 +160,15 @@ async function onSessionEnd(sessionId: string, cwd: string): Promise<void> {
   try {
     await updateSession(sessionId, {
       endedAt: new Date(now).toISOString(),
-      durationSeconds: session.durationSeconds + activeSecondsSince(session.lastActivityAt, session.startedAt, now),
+      // Reopened sessions restart the clock from now (see onActivity); the reaper
+      // already capped their duration.
+      durationSeconds: session.durationSeconds + (reopening ? 0 : activeSecondsSince(session.lastActivityAt, session.startedAt, now)),
       ...stats,
       momentum: scoreSession({ ...stats, exitCode: 0 }, readConfig()),
       exitCode: 0,
       lastActivityAt: new Date(now).toISOString(),
+      // Clear any interrupted submission so the corrected final state resubmits.
+      submittedAt: undefined,
     });
   } catch {}
 

@@ -52,8 +52,12 @@ function vibeCommand(event: HookEvent): string {
 }
 
 function isVibeHook(group: HookGroup): boolean {
+  // `__hook` is our coined subcommand — matching it alone is enough. Don't also
+  // require the literal "vibe" in the path: a dev clone in a differently named
+  // directory has no "vibe" in its cli.js path, which would make reinstall
+  // duplicate our hooks and uninstall miss them.
   return Array.isArray(group?.hooks) && group.hooks.some(
-    (h) => typeof h?.command === 'string' && h.command.includes('__hook') && h.command.includes('vibe'),
+    (h) => typeof h?.command === 'string' && h.command.includes('__hook'),
   );
 }
 
