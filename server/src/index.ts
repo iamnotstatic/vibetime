@@ -5,7 +5,7 @@ import { leaderboardJson, leaderboardHtml } from './routes/leaderboard.js';
 import { error } from './http.js';
 
 // bump this when a new CLI release should be recommended to clients
-const CLI_RECOMMENDED_VERSION = '0.4.2';
+const CLI_RECOMMENDED_VERSION = '0.5.0';
 
 const CORS_HEADERS = {
   'access-control-allow-origin': '*',
