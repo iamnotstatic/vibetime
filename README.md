@@ -64,6 +64,30 @@ Sessions are scored by what happened in git:
 
 **How duration works** — Vibetime polls your git state every 30 seconds. If no file changes, commits, or staging activity are detected for 30 minutes, the idle time is excluded from your session duration. Laptop sleep and background idle are automatically handled. Non-git projects use wall-clock time.
 
+## Claude Code Desktop
+
+`vibe init` wraps the `claude` **terminal** command. The Claude Code **Desktop** app never runs that command, so the shell wrapper can't see it. Track Desktop sessions with hooks instead:
+
+```
+vibe hooks install
+```
+
+This registers session hooks in `~/.claude/settings.json` — the same settings the Desktop app reads. From then on, every Desktop session is recorded and shows up in `vibe status`, `vibe log`, `vibe share`, and the leaderboard, exactly like a terminal session.
+
+Nothing else to run: Claude Code hot-reloads the settings, so just open a new Desktop session. Duration is measured the same way as the terminal — active coding time, with idle gaps over 30 minutes excluded.
+
+If you use **both** the terminal wrapper and Desktop hooks, terminal `claude` sessions are counted once, not twice — the hooks stand down when the shell wrapper is already tracking.
+
+> **Why hooks use absolute paths** — the Desktop app, when launched from the Dock, doesn't inherit your shell `PATH`, so a bare `vibe` wouldn't resolve. `vibe hooks install` pins the absolute path to Node and the CLI so tracking works regardless of how Desktop is launched.
+>
+> If you switch Node versions (e.g. an `nvm` upgrade) and remove the old one, re-run `vibe hooks install` so the pinned path points at your current Node.
+
+Stop tracking Desktop at any time:
+
+```
+vibe hooks uninstall
+```
+
 ## Leaderboard (opt-in)
 
 Live at **[vibetime.club/leaderboard](https://vibetime.club/leaderboard)**. Public web view, no CLI required to browse.
@@ -116,6 +140,8 @@ vibe leaderboard             shipped sessions, last 7 days
 vibe config show             current settings
 vibe config set handle <name> set your @handle (shown on share cards)
 vibe config add-tool <name>  track a new AI CLI tool
+vibe hooks install           track Claude Code Desktop sessions
+vibe hooks uninstall         stop tracking Claude Code Desktop
 vibe uninstall               remove shell hooks
 ```
 
@@ -125,16 +151,19 @@ Sessions belong to the day they started — a session that runs past midnight ap
 
 ```
 vibe uninstall
+vibe hooks uninstall   # if you tracked Claude Code Desktop
 npm uninstall -g vibetime-cli
 ```
 
-`vibe uninstall` removes all shell hooks from your rc file. Your session data in `~/.vibe/` is preserved — delete it manually if you want a clean removal.
+`vibe uninstall` removes all shell hooks from your rc file, and `vibe hooks uninstall` removes the Claude Code Desktop hooks from `~/.claude/settings.json`. Your session data in `~/.vibe/` is preserved — delete it manually if you want a clean removal.
 
 ## Privacy
 
 Vibetime has no telemetry and no account by default. Everything stays on your machine unless you opt in to the leaderboard with `vibe login`.
 
 It reads **git metadata only** — commit counts, line counts, file counts. It never reads file contents, environment variables, API keys, or anything you type into the wrapped tool. The AI CLI's stdin/stdout are passed straight through via `spawn` with `stdio: 'inherit'`.
+
+The Claude Code Desktop hooks are held to the same standard: they read only the session id and working directory from the hook payload — never the transcript, your prompts, or the model's output — and derive the same git metadata from there.
 
 All data is stored locally in `~/.vibe/`. If you've signed in to the leaderboard, see the section above for the exact fields submitted.
 
