@@ -14,7 +14,7 @@ You never add dependencies without justification. You never put display logic ou
 ## Known limitations
 
 - Fish shell not supported — `vibe init` writes bash/zsh function syntax. Fish users must add the hook manually: `function claude; vibe __wrap claude $argv; end` (issue #1)
-- `VIBE_SESSION=1` inherited by child processes that call claude programmatically — known tradeoff of the nesting guard. A tool that spawns `claude` as a subprocess will skip tracking for that inner invocation.
+- `VIBE_SESSION` inherited by child processes that call claude programmatically — known tradeoff of the nesting guard. A tool that spawns `claude` as a subprocess will skip tracking for that inner invocation. The marker holds the wrapper's pid and is only honoured while that pid is alive (`src/session-flag.ts`), so a copy stranded in a long-lived ancestor no longer disables tracking permanently. A recycled pid can still cost one launch, which self-corrects.
 
 ## Foundation work in progress
 

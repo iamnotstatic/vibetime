@@ -3,6 +3,7 @@ import { isGitRepo, getHeadSha, getBranch, getProjectName, getDiffStats, type Gi
 import { readConfig } from './config.js';
 import { scoreSession } from './score.js';
 import { flushPendingSubmissions } from './submit.js';
+import { isInsideLiveSession } from './session-flag.js';
 
 // Claude Code delivers a JSON payload on stdin to every hook command. We read
 // only the fields below — never the transcript contents — so hook-tracked
@@ -53,9 +54,11 @@ function wasReapedInterrupted(session: Session): boolean {
 
 export async function handleHook(event: string, raw: string): Promise<void> {
   // The shell wrapper (`vibe __wrap`) already tracks its child session end to
-  // end and marks it with VIBE_SESSION=1. Claude Code fires these hooks inside
-  // that wrapped process too, so bail out to avoid double-counting.
-  if (process.env.VIBE_SESSION === '1') return;
+  // end and marks the environment it spawns. Claude Code fires these hooks inside
+  // that wrapped process too, so bail out to avoid double-counting — but only
+  // while that wrapper is actually running, or a stale marker would silence this
+  // path as well and leave the session untracked by either mechanism.
+  if (isInsideLiveSession()) return;
 
   let input: HookInput;
   try {

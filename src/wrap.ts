@@ -7,6 +7,7 @@ import { scoreSession } from './score.js';
 import { renderEndcard } from './render.js';
 import { flushPendingSubmissions, submitInProgress } from './submit.js';
 import { getRecommendedVersion } from './api.js';
+import { isInsideLiveSession, sessionEnv } from './session-flag.js';
 import { PURPLE } from './colors.js';
 
 const POLL_INTERVAL_MS = 30_000;
@@ -21,7 +22,7 @@ function reportSpawnError(tool: string, err: NodeJS.ErrnoException): void {
 }
 
 export async function wrapTool(tool: string, args: string[]): Promise<void> {
-  if (process.env.VIBE_SESSION === '1') {
+  if (isInsideLiveSession()) {
     const child = spawn(tool, args, { stdio: 'inherit' });
     child.on('error', (err: NodeJS.ErrnoException) => {
       reportSpawnError(tool, err);
@@ -152,7 +153,7 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
 
   const child = spawn(tool, args, {
     stdio: 'inherit',
-    env: { ...process.env, VIBE_SESSION: '1' },
+    env: sessionEnv(),
   });
 
   // signal handling — registered after spawn so child is defined
