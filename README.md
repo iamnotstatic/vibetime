@@ -76,6 +76,8 @@ This registers session hooks in `~/.claude/settings.json` — the same settings 
 
 Nothing else to run: Claude Code hot-reloads the settings, so just open a new Desktop session. Duration is measured the same way as the terminal — active coding time, with idle gaps over 30 minutes excluded.
 
+**Working across several repos?** Start the session wherever you like. If that directory isn't a repo itself, vibetime picks up the repos sitting directly inside it and measures all of them, so a session that touches `api/` and `web/` is scored on both. A directory with no repos in or under it isn't tracked — there'd be nothing to measure.
+
 If you use **both** the terminal wrapper and Desktop hooks, terminal `claude` sessions are counted once, not twice — the hooks stand down when the shell wrapper is already tracking.
 
 > **Why hooks use absolute paths** — the Desktop app, when launched from the Dock, doesn't inherit your shell `PATH`, so a bare `vibe` wouldn't resolve. `vibe hooks install` pins the absolute path to Node and the CLI so tracking works regardless of how Desktop is launched.

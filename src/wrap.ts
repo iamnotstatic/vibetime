@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { addSession, updateSession, deleteSession, reapOrphanedSessions, INACTIVITY_TIMEOUT_MS, type Session } from './db.js';
-import { isGitRepo, getHeadSha, getBranch, getProjectName, getDiffStats, getWorkingTreeFingerprint } from './git.js';
+import { baselineRepos, describeRepos, getReposDiffStats, getReposFingerprint } from './git.js';
 import { readConfig } from './config.js';
 import { scoreSession } from './score.js';
 import { renderEndcard } from './render.js';
@@ -33,10 +33,14 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
 
   const cwd = process.cwd();
   const startedAt = new Date().toISOString();
-  const hasGit = isGitRepo(cwd);
-  const startSha = hasGit ? getHeadSha(cwd) : '';
-  const branch = hasGit ? getBranch(cwd) : 'unknown';
-  const project = hasGit ? getProjectName(cwd) : cwd.split('/').pop() || 'unknown';
+  // The repo this was launched in, or the repos inside the directory it was
+  // launched from. Unlike the Desktop hooks, the wrapper still tracks a
+  // directory with no repos at all by wall clock — you invoked it deliberately.
+  const repos = baselineRepos(cwd);
+  const hasGit = repos.length > 0;
+  const { project, branch } = hasGit
+    ? describeRepos(repos, cwd)
+    : { project: cwd.split('/').pop() || 'unknown', branch: 'unknown' };
   const config = readConfig();
   const sessionId = randomUUID();
   let lastActivityAt = startedAt;
@@ -54,8 +58,7 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
 
     let diffStats = { commits: 0, linesAdded: 0, linesRemoved: 0, filesTouched: 0 };
     if (hasGit) {
-      const endSha = getHeadSha(cwd);
-      diffStats = getDiffStats(startSha, endSha, cwd);
+      diffStats = getReposDiffStats(repos);
     }
     const momentum = scoreSession({ ...diffStats, exitCode }, config);
     return { endedAt, durationSeconds, ...diffStats, momentum, exitCode, lastActivityAt };
@@ -66,6 +69,8 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
   const session: Session = {
     id: sessionId, tool, project, branch, startedAt,
     ...initial,
+    startSha: repos.length === 1 ? repos[0].startSha : '',
+    repos,
   };
   try { await addSession(session); } catch (e) {
     console.error(`  vibe: failed to save session — ${e instanceof Error ? e.message : 'unknown error'}`);
@@ -75,7 +80,7 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
   let prevCommits = initial.commits;
   let prevLinesAdded = initial.linesAdded;
   let prevLinesRemoved = initial.linesRemoved;
-  let prevTreeState = hasGit ? getWorkingTreeFingerprint(cwd) : '';
+  let prevTreeState = hasGit ? getReposFingerprint(repos) : '';
   let lastInProgressSubmitAt = 0;
   const poll = setInterval(async () => {
     try {
@@ -88,7 +93,7 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
       }
 
       const snap = snapshot(-1);
-      const treeState = hasGit ? getWorkingTreeFingerprint(cwd) : '';
+      const treeState = hasGit ? getReposFingerprint(repos) : '';
       const treeChanged = treeState !== prevTreeState;
       const hasNewActivity = snap.commits > prevCommits || snap.linesAdded > prevLinesAdded || snap.linesRemoved > prevLinesRemoved || treeChanged;
       if (hasNewActivity) {

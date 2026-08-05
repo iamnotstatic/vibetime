@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { readFileSync, writeFileSync, renameSync, mkdirSync, rmdirSync, unlinkSync, statSync, existsSync } from 'node:fs';
 import { VIBE_DIR, ensureVibeDir } from './config.js';
 import type { MomentumTier } from './score.js';
+import type { RepoBaseline } from './git.js';
 
 export interface Session {
   id: string;
@@ -22,7 +23,15 @@ export interface Session {
   // HEAD sha when the session started. Hook-tracked sessions (Claude Code Desktop)
   // record start and end in separate processes, so the baseline sha is persisted
   // here rather than held in memory like the shell-wrapped flow.
+  //
+  // Superseded by `repos`, which carries a baseline per repo. Still written, and
+  // still read as a fallback, so sessions recorded by an older CLI keep scoring
+  // correctly across an upgrade.
   startSha?: string;
+  // Every repo the session watches, each with its baseline HEAD: one entry for a
+  // session started inside a repo, several for one started from a directory that
+  // holds repos side by side.
+  repos?: RepoBaseline[];
 }
 
 interface DbSchema {
