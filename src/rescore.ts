@@ -17,18 +17,24 @@ function statsChanged(session: Session, stats: { commits: number; linesAdded: nu
   );
 }
 
-// A later session watching the same repo has its own baseline, taken after this
-// one closed, so anything committed from then on belongs to it. Without this
-// check the same commit could be credited to both.
-function supersededBy(session: Session, all: Session[]): boolean {
+// Whether another session already owns anything that lands in this repo from
+// here on, so refreshing this one would double-credit it. Two cases:
+//
+//  - a session watching the same repo is open right now. It will pick up
+//    whatever lands next on its own; it doesn't matter whether it started
+//    before or after this one closed — sessions on a shared repo can overlap
+//    for their whole open lifetime, not just across the grace window.
+//  - a session watching the same repo started after this one closed. Its
+//    baseline was taken later, so anything committed from then on is its to
+//    claim even once it, too, eventually closes.
+function ownedByAnotherSession(session: Session, all: Session[]): boolean {
   const endedMs = Date.parse(session.endedAt);
   const paths = new Set((session.repos ?? []).map((r) => r.path));
-  return all.some(
-    (other) =>
-      other.id !== session.id &&
-      Date.parse(other.startedAt) >= endedMs &&
-      (other.repos ?? []).some((r) => paths.has(r.path)),
-  );
+  return all.some((other) => {
+    if (other.id === session.id) return false;
+    if (!(other.repos ?? []).some((r) => paths.has(r.path))) return false;
+    return other.exitCode === -1 || Date.parse(other.startedAt) >= endedMs;
+  });
 }
 
 // Re-read git for sessions whose stats can still move: the ones still open, and
@@ -52,7 +58,7 @@ export async function refreshRecentSessions(): Promise<void> {
     const open = session.exitCode === -1;
     if (!open) {
       if (now - Date.parse(session.endedAt) > GRACE_MS) continue;
-      if (supersededBy(session, all)) continue;
+      if (ownedByAnotherSession(session, all)) continue;
     }
 
     const stats = getReposDiffStats(session.repos);
