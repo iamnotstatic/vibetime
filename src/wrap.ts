@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { addSession, updateSession, deleteSession, reapOrphanedSessions, INACTIVITY_TIMEOUT_MS, type Session } from './db.js';
+import { addSession, updateSession, deleteSession, INACTIVITY_TIMEOUT_MS, type Session } from './db.js';
 import { baselineRepos, describeRepos, getReposDiffStats, getReposFingerprint } from './git.js';
+import { refreshAndReap } from './rescore.js';
 import { readConfig } from './config.js';
 import { scoreSession } from './score.js';
 import { renderEndcard } from './render.js';
@@ -47,7 +48,7 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
   let totalGapMs = 0;
   let idleSince = 0;
 
-  await reapOrphanedSessions();
+  await refreshAndReap();
 
   function snapshot(exitCode: number): Pick<Session, 'endedAt' | 'durationSeconds' | 'commits' | 'linesAdded' | 'linesRemoved' | 'filesTouched' | 'momentum' | 'exitCode' | 'lastActivityAt'> {
     const endedAt = new Date().toISOString();
