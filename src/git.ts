@@ -1,6 +1,6 @@
 import { execSync } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { basename, isAbsolute, join, resolve } from 'node:path';
 
 const SHA_RE = /^[0-9a-f]{4,40}$/;
 
@@ -119,15 +119,60 @@ export function discoverRepos(cwd: string): string[] {
     return [];
   }
 
-  const repos: string[] = [];
+  const candidates: string[] = [];
   for (const name of entries.slice(0, MAX_SCANNED_ENTRIES)) {
-    if (repos.length >= MAX_DISCOVERED_REPOS) break;
     const child = join(cwd, name);
     // `.git` is a directory in a normal clone and a file in a worktree or
     // submodule — existsSync covers both.
-    if (existsSync(join(child, '.git'))) repos.push(child);
+    if (existsSync(join(child, '.git'))) candidates.push(child);
   }
-  return repos;
+  return dedupeByRepo(candidates).slice(0, MAX_DISCOVERED_REPOS);
+}
+
+// A repo cloned next to a linked worktree of itself is exactly the layout the
+// worktree-counting below exists for, and both sides have a `.git` — so they
+// surface as two candidates here even though they're one underlying repo.
+// Keeping both would double count everything: once as the worktree's own
+// top-level entry, and again inside the repo's own worktree list. Keep one
+// entry per repo, preferring the main checkout — its worktree list enumerates
+// every linked checkout, a linked worktree's list of itself does not.
+function dedupeByRepo(candidates: string[]): string[] {
+  const chosen = new Map<string, string>(); // git-common-dir -> chosen path
+  const order: string[] = [];
+  for (const path of candidates) {
+    const key = getGitCommonDir(path) || path;
+    const existing = chosen.get(key);
+    if (!existing) {
+      chosen.set(key, path);
+      order.push(key);
+    } else if (!isMainCheckout(existing) && isMainCheckout(path)) {
+      chosen.set(key, path);
+    }
+  }
+  return order.map((key) => chosen.get(key)!);
+}
+
+function getGitCommonDir(cwd: string): string {
+  const out = run('git rev-parse --git-common-dir', cwd);
+  if (!out) return '';
+  const abs = isAbsolute(out) ? out : resolve(cwd, out);
+  // Git resolves symlinks when it writes a linked worktree's gitdir pointer, so
+  // its --git-common-dir comes back through e.g. /private/var on macOS while
+  // the main checkout's relative ".git" resolves through the un-resolved cwd —
+  // same directory, two different strings. realpath normalizes both sides.
+  try {
+    return realpathSync(abs);
+  } catch {
+    return abs;
+  }
+}
+
+function isMainCheckout(path: string): boolean {
+  try {
+    return statSync(join(path, '.git')).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 export function baselineRepos(cwd: string): RepoBaseline[] {
@@ -228,17 +273,24 @@ export function getDiffStats(fromSha: string, toSha: string, cwd?: string): GitD
   return { commits, linesAdded, linesRemoved, filesTouched: allFiles.size };
 }
 
+interface CommittedStats {
+  commits: number;
+  linesAdded: number;
+  linesRemoved: number;
+  files: Set<string>;
+}
+
 // Committed work across every checkout of one repo, counted once. Asking for the
 // commits reachable from any current tip but from no baseline is what makes a
 // worktree count: its commits never move the main checkout's HEAD, but they are
 // reachable from the worktree's tip and from no baseline. Merging that worktree
 // back mid-session doesn't double count either — the commits land in the same
 // reachability set whether one tip or two can see them.
-function committedStats(checkouts: { path: string; head: string; startSha: string }[], repoPath: string): GitDiffStats {
+function committedStats(checkouts: { path: string; head: string; startSha: string }[], repoPath: string): CommittedStats {
   const bases = [...new Set(checkouts.map((c) => c.startSha).filter(isSha))];
   const tips = [...new Set(checkouts.map((c) => c.head).filter(isSha))].filter((t) => !bases.includes(t));
   if (bases.length === 0 || tips.length === 0) {
-    return { commits: 0, linesAdded: 0, linesRemoved: 0, filesTouched: 0 };
+    return { commits: 0, linesAdded: 0, linesRemoved: 0, files: new Set() };
   }
 
   const range = [...bases.map((b) => `^${b}`), ...tips].join(' ');
@@ -247,7 +299,7 @@ function committedStats(checkouts: { path: string; head: string; startSha: strin
   // tip, and summing one per tip would count shared history twice. Merge commits
   // report no numstat, so merged work is counted where it was written.
   const { added, removed, files } = parseNumstat(run(`git log --format= --numstat ${range}`, repoPath));
-  return { commits, linesAdded: added, linesRemoved: removed, filesTouched: files.size };
+  return { commits, linesAdded: added, linesRemoved: removed, files };
 }
 
 // Stats for every repo the session watches, summed. Files are counted per repo
@@ -257,19 +309,24 @@ export function getReposDiffStats(repos: RepoBaseline[]): GitDiffStats {
   const total: GitDiffStats = { commits: 0, linesAdded: 0, linesRemoved: 0, filesTouched: 0 };
   for (const repo of repos) {
     const checkouts = checkoutsOf(repo);
-    const stats = committedStats(checkouts, repo.path);
-    // Uncommitted work lives in one working tree at a time, so no checkout can
-    // overlap another here.
+    const committed = committedStats(checkouts, repo.path);
+    let linesAdded = committed.linesAdded;
+    let linesRemoved = committed.linesRemoved;
+    // A file already touched by a commit this session can also be sitting
+    // uncommitted right now — union rather than sum so it isn't counted twice.
+    // Uncommitted work itself lives in one working tree at a time, so no
+    // checkout can overlap another there.
+    const files = new Set(committed.files);
     for (const checkout of checkouts) {
       const uncommitted = uncommittedStats(checkout.path);
-      stats.linesAdded += uncommitted.added;
-      stats.linesRemoved += uncommitted.removed;
-      stats.filesTouched += uncommitted.files.size;
+      linesAdded += uncommitted.added;
+      linesRemoved += uncommitted.removed;
+      for (const f of uncommitted.files) files.add(f);
     }
-    total.commits += stats.commits;
-    total.linesAdded += stats.linesAdded;
-    total.linesRemoved += stats.linesRemoved;
-    total.filesTouched += stats.filesTouched;
+    total.commits += committed.commits;
+    total.linesAdded += linesAdded;
+    total.linesRemoved += linesRemoved;
+    total.filesTouched += files.size;
   }
   return total;
 }
