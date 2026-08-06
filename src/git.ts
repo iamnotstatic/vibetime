@@ -1,6 +1,6 @@
 import { execSync } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { basename, isAbsolute, join, resolve } from 'node:path';
 
 const SHA_RE = /^[0-9a-f]{4,40}$/;
 
@@ -52,10 +52,48 @@ export function getRepoRoot(cwd?: string): string {
   return run('git rev-parse --show-toplevel', cwd);
 }
 
-// A repo a session watches, paired with the HEAD it had when the session opened.
-export interface RepoBaseline {
+// A checkout of a repo, paired with the HEAD it had when the session opened.
+export interface CheckoutBaseline {
   path: string;
   startSha: string;
+}
+
+// A repo a session watches. Linked worktrees are checkouts of the same repo with
+// their own HEAD, so each carries its own baseline — without one, a worktree
+// parked on an old branch would read as work done during this session.
+export interface RepoBaseline extends CheckoutBaseline {
+  worktrees?: CheckoutBaseline[];
+}
+
+interface Worktree {
+  path: string;
+  head: string;
+}
+
+// Every checkout of a repo: the main one plus any linked worktree. Bare entries
+// have no HEAD and are skipped.
+export function listWorktrees(repoPath: string): Worktree[] {
+  const out = run('git worktree list --porcelain', repoPath);
+  if (!out) return [];
+
+  const trees: Worktree[] = [];
+  let path = '';
+  let head = '';
+  const flush = () => {
+    if (path && head) trees.push({ path, head });
+    path = '';
+    head = '';
+  };
+  for (const line of out.split('\n')) {
+    if (line.startsWith('worktree ')) {
+      flush();
+      path = line.slice('worktree '.length);
+    } else if (line.startsWith('HEAD ')) {
+      head = line.slice('HEAD '.length);
+    }
+  }
+  flush();
+  return trees;
 }
 
 // The repos a session should measure. Usually that's the one repo the session
@@ -81,19 +119,69 @@ export function discoverRepos(cwd: string): string[] {
     return [];
   }
 
-  const repos: string[] = [];
+  const candidates: string[] = [];
   for (const name of entries.slice(0, MAX_SCANNED_ENTRIES)) {
-    if (repos.length >= MAX_DISCOVERED_REPOS) break;
     const child = join(cwd, name);
     // `.git` is a directory in a normal clone and a file in a worktree or
     // submodule — existsSync covers both.
-    if (existsSync(join(child, '.git'))) repos.push(child);
+    if (existsSync(join(child, '.git'))) candidates.push(child);
   }
-  return repos;
+  return dedupeByRepo(candidates).slice(0, MAX_DISCOVERED_REPOS);
+}
+
+// A repo cloned next to a linked worktree of itself is exactly the layout the
+// worktree-counting below exists for, and both sides have a `.git` — so they
+// surface as two candidates here even though they're one underlying repo.
+// Keeping both would double count everything: once as the worktree's own
+// top-level entry, and again inside the repo's own worktree list. Keep one
+// entry per repo, preferring the main checkout — its worktree list enumerates
+// every linked checkout, a linked worktree's list of itself does not.
+function dedupeByRepo(candidates: string[]): string[] {
+  const chosen = new Map<string, string>(); // git-common-dir -> chosen path
+  const order: string[] = [];
+  for (const path of candidates) {
+    const key = getGitCommonDir(path) || path;
+    const existing = chosen.get(key);
+    if (!existing) {
+      chosen.set(key, path);
+      order.push(key);
+    } else if (!isMainCheckout(existing) && isMainCheckout(path)) {
+      chosen.set(key, path);
+    }
+  }
+  return order.map((key) => chosen.get(key)!);
+}
+
+function getGitCommonDir(cwd: string): string {
+  const out = run('git rev-parse --git-common-dir', cwd);
+  if (!out) return '';
+  const abs = isAbsolute(out) ? out : resolve(cwd, out);
+  // Git resolves symlinks when it writes a linked worktree's gitdir pointer, so
+  // its --git-common-dir comes back through e.g. /private/var on macOS while
+  // the main checkout's relative ".git" resolves through the un-resolved cwd —
+  // same directory, two different strings. realpath normalizes both sides.
+  try {
+    return realpathSync(abs);
+  } catch {
+    return abs;
+  }
+}
+
+function isMainCheckout(path: string): boolean {
+  try {
+    return statSync(join(path, '.git')).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 export function baselineRepos(cwd: string): RepoBaseline[] {
-  return discoverRepos(cwd).map((path) => ({ path, startSha: getHeadSha(path) }));
+  return discoverRepos(cwd).map((path) => {
+    const worktrees = listWorktrees(path)
+      .filter((t) => t.path !== path)
+      .map((t) => ({ path: t.path, startSha: t.head }));
+    return { path, startSha: getHeadSha(path), ...(worktrees.length ? { worktrees } : {}) };
+  });
 }
 
 // How a session labels itself. One repo reads as that repo on whatever branch it
@@ -133,7 +221,29 @@ export function getWorkingTreeFingerprint(cwd?: string): string {
 }
 
 export function getReposFingerprint(repos: RepoBaseline[]): string {
-  return repos.map((r) => `${r.path}\n${getWorkingTreeFingerprint(r.path)}`).join('\n');
+  return repos
+    .flatMap((r) => checkoutsOf(r).map((c) => `${c.path}\n${getWorkingTreeFingerprint(c.path)}`))
+    .join('\n');
+}
+
+function uncommittedStats(cwd: string) {
+  const hasHead = run('git rev-parse --verify HEAD', cwd) !== '';
+  return parseNumstat(
+    hasHead ? run('git diff --numstat HEAD', cwd) : run('git diff --numstat --cached', cwd)
+  );
+}
+
+// Every checkout of a repo as it stands right now, each with the baseline to
+// measure it from. A worktree created after the session opened has no baseline
+// of its own, so it is measured from the repo's — its commits are new by
+// definition.
+function checkoutsOf(repo: RepoBaseline): { path: string; head: string; startSha: string }[] {
+  const baselines = new Map<string, string>([[repo.path, repo.startSha]]);
+  for (const t of repo.worktrees ?? []) baselines.set(t.path, t.startSha);
+
+  const current = listWorktrees(repo.path);
+  const trees = current.length ? current : [{ path: repo.path, head: getHeadSha(repo.path) }];
+  return trees.map((t) => ({ ...t, startSha: baselines.get(t.path) ?? repo.startSha }));
 }
 
 export function getDiffStats(fromSha: string, toSha: string, cwd?: string): GitDiffStats {
@@ -163,17 +273,60 @@ export function getDiffStats(fromSha: string, toSha: string, cwd?: string): GitD
   return { commits, linesAdded, linesRemoved, filesTouched: allFiles.size };
 }
 
+interface CommittedStats {
+  commits: number;
+  linesAdded: number;
+  linesRemoved: number;
+  files: Set<string>;
+}
+
+// Committed work across every checkout of one repo, counted once. Asking for the
+// commits reachable from any current tip but from no baseline is what makes a
+// worktree count: its commits never move the main checkout's HEAD, but they are
+// reachable from the worktree's tip and from no baseline. Merging that worktree
+// back mid-session doesn't double count either — the commits land in the same
+// reachability set whether one tip or two can see them.
+function committedStats(checkouts: { path: string; head: string; startSha: string }[], repoPath: string): CommittedStats {
+  const bases = [...new Set(checkouts.map((c) => c.startSha).filter(isSha))];
+  const tips = [...new Set(checkouts.map((c) => c.head).filter(isSha))].filter((t) => !bases.includes(t));
+  if (bases.length === 0 || tips.length === 0) {
+    return { commits: 0, linesAdded: 0, linesRemoved: 0, files: new Set() };
+  }
+
+  const range = [...bases.map((b) => `^${b}`), ...tips].join(' ');
+  const commits = parseInt(run(`git rev-list --count ${range}`, repoPath), 10) || 0;
+  // Per-commit numstat rather than a net range diff: a range diff needs a single
+  // tip, and summing one per tip would count shared history twice. Merge commits
+  // report no numstat, so merged work is counted where it was written.
+  const { added, removed, files } = parseNumstat(run(`git log --format= --numstat ${range}`, repoPath));
+  return { commits, linesAdded: added, linesRemoved: removed, files };
+}
+
 // Stats for every repo the session watches, summed. Files are counted per repo
 // and added up — two repos can hold the same relative path without it being the
 // same file, so there is nothing to de-duplicate across them.
 export function getReposDiffStats(repos: RepoBaseline[]): GitDiffStats {
   const total: GitDiffStats = { commits: 0, linesAdded: 0, linesRemoved: 0, filesTouched: 0 };
   for (const repo of repos) {
-    const stats = getDiffStats(repo.startSha, getHeadSha(repo.path), repo.path);
-    total.commits += stats.commits;
-    total.linesAdded += stats.linesAdded;
-    total.linesRemoved += stats.linesRemoved;
-    total.filesTouched += stats.filesTouched;
+    const checkouts = checkoutsOf(repo);
+    const committed = committedStats(checkouts, repo.path);
+    let linesAdded = committed.linesAdded;
+    let linesRemoved = committed.linesRemoved;
+    // A file already touched by a commit this session can also be sitting
+    // uncommitted right now — union rather than sum so it isn't counted twice.
+    // Uncommitted work itself lives in one working tree at a time, so no
+    // checkout can overlap another there.
+    const files = new Set(committed.files);
+    for (const checkout of checkouts) {
+      const uncommitted = uncommittedStats(checkout.path);
+      linesAdded += uncommitted.added;
+      linesRemoved += uncommitted.removed;
+      for (const f of uncommitted.files) files.add(f);
+    }
+    total.commits += committed.commits;
+    total.linesAdded += linesAdded;
+    total.linesRemoved += linesRemoved;
+    total.filesTouched += files.size;
   }
   return total;
 }
