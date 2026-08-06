@@ -1,5 +1,5 @@
 import { addSession, updateSession, getSessions, reapOrphanedSessions, INACTIVITY_TIMEOUT_MS, type Session } from './db.js';
-import { isGitRepo, getHeadSha, getBranch, getProjectName, getDiffStats, type GitDiffStats } from './git.js';
+import { isGitRepo, getHeadSha, getDiffStats, getReposDiffStats, baselineRepos, describeRepos, type GitDiffStats } from './git.js';
 import { readConfig } from './config.js';
 import { scoreSession } from './score.js';
 import { flushPendingSubmissions } from './submit.js';
@@ -34,6 +34,9 @@ function activeSecondsSince(lastActivityAt: string | undefined, startedAt: strin
 }
 
 function diffFor(session: Session, cwd: string): GitDiffStats {
+  if (session.repos?.length) return getReposDiffStats(session.repos);
+  // Fallback for sessions opened by an older CLI, which recorded a single
+  // baseline sha against the session cwd.
   if (!session.startSha || !isGitRepo(cwd)) return EMPTY_STATS;
   return getDiffStats(session.startSha, getHeadSha(cwd), cwd);
 }
@@ -85,15 +88,21 @@ async function onSessionStart(sessionId: string, cwd: string): Promise<void> {
   // session id so a session is only opened once.
   if (getSessions().some((s) => s.id === sessionId)) return;
 
-  const hasGit = isGitRepo(cwd);
+  // The repo the session started in, or — when it started from a directory that
+  // holds repos rather than being one — the repos inside it. Desktop fires
+  // SessionStart for every session, including quick questions asked from a
+  // directory with no code under it at all; those can never score, so skip them
+  // instead of piling up idle rows in `vibe log`.
+  const repos = baselineRepos(cwd);
+  if (repos.length === 0) return;
+
   const startedAt = new Date().toISOString();
   const config = readConfig();
 
   const session: Session = {
     id: sessionId,
     tool: 'claude',
-    project: hasGit ? getProjectName(cwd) : cwd.split('/').pop() || 'unknown',
-    branch: hasGit ? getBranch(cwd) : 'unknown',
+    ...describeRepos(repos, cwd),
     startedAt,
     endedAt: startedAt,
     durationSeconds: 0,
@@ -101,7 +110,8 @@ async function onSessionStart(sessionId: string, cwd: string): Promise<void> {
     momentum: scoreSession({ ...EMPTY_STATS, exitCode: -1 }, config),
     exitCode: -1,
     lastActivityAt: startedAt,
-    startSha: hasGit ? getHeadSha(cwd) : '',
+    startSha: repos.length === 1 ? repos[0].startSha : '',
+    repos,
   };
 
   try {
