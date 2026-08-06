@@ -17,7 +17,7 @@ export interface VibeConfig {
 export const VIBE_DIR = join(homedir(), '.vibe');
 const CONFIG_PATH = join(VIBE_DIR, 'config.json');
 
-const DEFAULTS: VibeConfig = {
+export const DEFAULTS: VibeConfig = {
   thresholdLines: 50,
   thresholdFiles: 3,
 };
