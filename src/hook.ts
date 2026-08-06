@@ -1,5 +1,6 @@
-import { addSession, updateSession, getSessions, reapOrphanedSessions, INACTIVITY_TIMEOUT_MS, type Session } from './db.js';
+import { addSession, updateSession, getSessions, INACTIVITY_TIMEOUT_MS, type Session } from './db.js';
 import { isGitRepo, getHeadSha, getDiffStats, getReposDiffStats, baselineRepos, describeRepos, type GitDiffStats } from './git.js';
+import { refreshAndReap } from './rescore.js';
 import { readConfig } from './config.js';
 import { scoreSession } from './score.js';
 import { flushPendingSubmissions } from './submit.js';
@@ -82,7 +83,7 @@ export async function handleHook(event: string, raw: string): Promise<void> {
 }
 
 async function onSessionStart(sessionId: string, cwd: string): Promise<void> {
-  await reapOrphanedSessions();
+  await refreshAndReap();
 
   // SessionStart also fires on resume/clear/compact — key off the Claude
   // session id so a session is only opened once.

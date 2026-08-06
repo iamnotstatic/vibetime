@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
-import { getSessions, reapOrphanedSessions } from './db.js';
+import { getSessions } from './db.js';
+import { refreshAndReap } from './rescore.js';
 import { readConfig, writeConfig, addTool } from './config.js';
 import { renderStatus, renderLog, renderLeaderboard } from './render.js';
 import { renderTerminalCard, writeHtmlCard } from './share.js';
@@ -65,7 +66,7 @@ program
   .command('status')
   .description("today's sessions")
   .action(async () => {
-    await reapOrphanedSessions();
+    await refreshAndReap();
     const sessions = getSessions();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -90,7 +91,7 @@ program
   .command('log')
   .description('full session history')
   .action(async () => {
-    await reapOrphanedSessions();
+    await refreshAndReap();
     const sessions = getSessions();
     const recent = sessions.slice(-20).reverse();
     console.log(renderLog(recent));
@@ -101,7 +102,7 @@ program
   .description("this week's share card")
   .option('--html', 'skip terminal card, open HTML directly')
   .action(async (opts: { html?: boolean }) => {
-    await reapOrphanedSessions();
+    await refreshAndReap();
     const sessions = getSessions();
 
     if (opts.html) {
