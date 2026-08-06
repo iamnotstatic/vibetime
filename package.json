@@ -9,6 +9,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
+    "test": "tsc && node --test test/*.test.mjs",
     "prepublishOnly": "tsc",
     "postinstall": "echo \"\\n  ◆ vibetime installed. run 'vibe init' to complete setup.\\n\""
   },
