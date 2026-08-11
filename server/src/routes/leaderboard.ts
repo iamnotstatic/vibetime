@@ -51,8 +51,15 @@ function parseWindow(value: string | null): Window {
   return 'week';
 }
 
+function startOfCalendarMonth(): Date {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), 1);
+}
+
 async function buildData(env: Env, window: Window): Promise<LeaderboardData> {
-  const sinceMs = window === 'all' ? 0 : Date.now() - WINDOWS[window];
+  const sinceMs = window === 'all' ? 0
+    : window === 'month' ? startOfCalendarMonth().getTime()
+    : Date.now() - WINDOWS[window];
   const sinceIso = new Date(sinceMs).toISOString();
 
   const totalsRes = await env.DB.prepare(
