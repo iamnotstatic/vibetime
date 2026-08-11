@@ -51,8 +51,23 @@ function parseWindow(value: string | null): Window {
   return 'week';
 }
 
+function startOfCalendarMonth(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+}
+
+function startOfCalendarWeek(): Date {
+  const now = new Date();
+  const day = now.getUTCDay();
+  const diff = day === 0 ? 6 : day - 1; // Monday = 0 offset
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - diff));
+}
+
 async function buildData(env: Env, window: Window): Promise<LeaderboardData> {
-  const sinceMs = window === 'all' ? 0 : Date.now() - WINDOWS[window];
+  const sinceMs = window === 'all' ? 0
+    : window === 'month' ? startOfCalendarMonth().getTime()
+    : window === 'week' ? startOfCalendarWeek().getTime()
+    : Date.now() - WINDOWS[window];
   const sinceIso = new Date(sinceMs).toISOString();
 
   const totalsRes = await env.DB.prepare(
