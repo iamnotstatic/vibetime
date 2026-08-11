@@ -32,6 +32,11 @@ export interface Session {
   // session started inside a repo, several for one started from a directory that
   // holds repos side by side.
   repos?: RepoBaseline[];
+  // Set when the session has ended cleanly at least once. A hook session can be
+  // reopened by later events carrying the same Claude session id (see hook.ts);
+  // if it then goes idle, the reaper re-finalizes it as the clean end it already
+  // had instead of downgrading it to `interrupted`.
+  hadCleanEnd?: boolean;
 }
 
 interface DbSchema {
@@ -166,12 +171,22 @@ export async function reapOrphanedSessions(): Promise<void> {
       const lastMs = new Date(s.lastActivityAt || s.startedAt).getTime();
       if (now - lastMs <= INACTIVITY_TIMEOUT_MS) continue;
 
-      const startMs = new Date(s.startedAt).getTime();
-      const cappedEndMs = lastMs + INACTIVITY_TIMEOUT_MS;
-      s.durationSeconds = Math.round(Math.max(cappedEndMs - startMs, 0) / 1000);
-      s.endedAt = new Date(cappedEndMs).toISOString();
-      s.exitCode = 1;
-      s.momentum = 'interrupted';
+      // durationSeconds is accumulated live with idle gaps excluded (hook
+      // events and the wrapper poller both do this), so extend it by the same
+      // capped tail the live path grants — never recompute from wall clock,
+      // which would re-include every excluded gap. endedAt lands at the cutoff
+      // so the rescore grace window still covers work committed just after.
+      s.durationSeconds += Math.round(INACTIVITY_TIMEOUT_MS / 1000);
+      s.endedAt = new Date(lastMs + INACTIVITY_TIMEOUT_MS).toISOString();
+      if (s.hadCleanEnd) {
+        // Revived after a clean end (see hook.ts): idling out again is not an
+        // interruption — re-finalize as the clean end it already had, keeping
+        // the momentum scored against live stats.
+        s.exitCode = 0;
+      } else {
+        s.exitCode = 1;
+        s.momentum = 'interrupted';
+      }
       changed = true;
     }
 
