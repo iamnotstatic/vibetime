@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { homedir, userInfo } from 'node:os';
 import { mkdirSync, chmodSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
@@ -14,7 +14,10 @@ export interface VibeConfig {
   thresholdFiles: number;
 }
 
-export const VIBE_DIR = join(homedir(), '.vibe');
+// Overridable so tests can run the full session flow against a scratch dir
+// instead of the real ~/.vibe. Resolved to absolute so a relative value can't
+// scatter one database per working directory.
+export const VIBE_DIR = process.env.VIBE_DIR ? resolve(process.env.VIBE_DIR) : join(homedir(), '.vibe');
 const CONFIG_PATH = join(VIBE_DIR, 'config.json');
 
 export const DEFAULTS: VibeConfig = {
@@ -23,9 +26,10 @@ export const DEFAULTS: VibeConfig = {
 };
 
 export function ensureVibeDir(): void {
-  const created = !existsSync(VIBE_DIR);
   mkdirSync(VIBE_DIR, { recursive: true });
-  if (created) chmodSync(VIBE_DIR, 0o700);
+  // Always, not just on create: sessions and auth are private, and an
+  // overridden VIBE_DIR may point at a dir that already exists more open.
+  chmodSync(VIBE_DIR, 0o700);
 }
 
 export function readConfig(): VibeConfig {
