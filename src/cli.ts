@@ -9,7 +9,8 @@ import { renderTerminalCard, writeHtmlCard } from './share.js';
 import { wrapTool } from './wrap.js';
 import { initShellHooks, removeShellHooks } from './init.js';
 import { installClaudeHooks, removeClaudeHooks } from './claude-hooks.js';
-import { handleHook } from './hook.js';
+import { installCodexHooks, removeCodexHooks } from './codex-hooks.js';
+import { handleHook, type HookTool } from './hook.js';
 import { login, logout, readAuth } from './auth.js';
 import { fetchLeaderboard } from './leaderboard.js';
 import { flushPendingSubmissions } from './submit.js';
@@ -50,17 +51,27 @@ program
 
 const hooksCmd = program
   .command('hooks')
-  .description('track Claude Code Desktop via session hooks');
+  .description('track desktop coding sessions via lifecycle hooks');
 
 hooksCmd
   .command('install')
-  .description('track Claude Code Desktop sessions (no shell wrapper needed)')
-  .action(installClaudeHooks);
+  .argument('[tool]', 'claude | codex', 'claude')
+  .description('track Claude Code or Codex Desktop sessions')
+  .action((tool: string) => {
+    if (tool === 'claude') return installClaudeHooks();
+    if (tool === 'codex') return installCodexHooks();
+    console.log(`\n  ${RED('✗')} vibe: hooks tool must be "claude" or "codex"\n`);
+  });
 
 hooksCmd
   .command('uninstall')
-  .description('stop tracking Claude Code Desktop sessions')
-  .action(removeClaudeHooks);
+  .argument('[tool]', 'claude | codex', 'claude')
+  .description('stop tracking Claude Code or Codex Desktop sessions')
+  .action((tool: string) => {
+    if (tool === 'claude') return removeClaudeHooks();
+    if (tool === 'codex') return removeCodexHooks();
+    console.log(`\n  ${RED('✗')} vibe: hooks tool must be "claude" or "codex"\n`);
+  });
 
 program
   .command('status')
@@ -233,18 +244,22 @@ program
     await wrapTool(tool, args);
   });
 
-// Invoked by Claude Code hooks with the event payload on stdin. Must stay silent
-// on stdout (SessionStart stdout is fed to the model) and always exit cleanly so
-// it can never interfere with the user's session.
+// Invoked by Claude Code or Codex hooks with the event payload on stdin. It stays
+// silent unless Codex requires an empty JSON response, and always exits cleanly
+// so tracking can never interfere with the user's session.
 program
   .command('__hook', { hidden: true })
   .argument('<event>', 'session-start | activity | session-end')
+  .option('--tool <tool>', 'claude | codex', 'claude')
+  .option('--respond-json', 'write an empty JSON hook response')
   .helpOption(false)
-  .action(async (event: string) => {
+  .action(async (event: string, opts: { tool: string; respondJson?: boolean }) => {
     try {
-      await handleHook(event, await readStdin());
+      const tool: HookTool = opts.tool === 'codex' ? 'codex' : 'claude';
+      await handleHook(event, await readStdin(), tool);
     } catch {}
-    process.exit(0);
+    if (opts.respondJson) process.stdout.write('{}\n');
+    process.exitCode = 0;
   });
 
 function readStdin(): Promise<string> {

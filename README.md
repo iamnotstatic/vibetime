@@ -64,7 +64,7 @@ Sessions are scored by what happened in git:
 
 **How duration works** — Vibetime polls your git state every 30 seconds. If no file changes, commits, or staging activity are detected for 30 minutes, the idle time is excluded from your session duration. Laptop sleep and background idle are automatically handled. Non-git projects use wall-clock time.
 
-## Claude Code Desktop
+## Desktop apps
 
 `vibe init` wraps the `claude` **terminal** command. The Claude Code **Desktop** app never runs that command, so the shell wrapper can't see it. Track Desktop sessions with hooks instead:
 
@@ -80,14 +80,27 @@ Nothing else to run: Claude Code hot-reloads the settings, so just open a new De
 
 If you use **both** the terminal wrapper and Desktop hooks, terminal `claude` sessions are counted once, not twice — the hooks stand down when the shell wrapper is already tracking.
 
+### Codex Desktop
+
+Codex Desktop uses the same session engine through Codex lifecycle hooks:
+
+```
+vibe hooks install codex
+```
+
+This adds Vibetime's hooks to `~/.codex/hooks.json` without replacing your existing Codex hooks. In Codex, run `/hooks`, review the commands, and trust the configuration once. Then open a new Codex session. It will appear as `codex` in `vibe status`, `vibe log`, `vibe share`, and the leaderboard.
+
+Vibetime measures the git changes made while that Codex session is active. Codex sends activity events as you prompt it and use tools, then a session-end event when the session closes or is archived. Idle gaps over 30 minutes are excluded, just like Claude Desktop tracking.
+
 > **Why hooks use absolute paths** — the Desktop app, when launched from the Dock, doesn't inherit your shell `PATH`, so a bare `vibe` wouldn't resolve. `vibe hooks install` pins the absolute path to Node and the CLI so tracking works regardless of how Desktop is launched.
 >
-> If you switch Node versions (e.g. an `nvm` upgrade) and remove the old one, re-run `vibe hooks install` so the pinned path points at your current Node.
+> If you switch Node versions (e.g. an `nvm` upgrade) and remove the old one, re-run the relevant install command so the pinned path points at your current Node. Codex will ask you to review the changed command again.
 
 Stop tracking Desktop at any time:
 
 ```
-vibe hooks uninstall
+vibe hooks uninstall         # Claude Code Desktop
+vibe hooks uninstall codex   # Codex Desktop
 ```
 
 ## Leaderboard (opt-in)
@@ -143,7 +156,9 @@ vibe config show             current settings
 vibe config set handle <name> set your @handle (shown on share cards)
 vibe config add-tool <name>  track a new AI CLI tool
 vibe hooks install           track Claude Code Desktop sessions
+vibe hooks install codex     track Codex Desktop sessions
 vibe hooks uninstall         stop tracking Claude Code Desktop
+vibe hooks uninstall codex   stop tracking Codex Desktop
 vibe uninstall               remove shell hooks
 ```
 
@@ -153,11 +168,12 @@ Sessions belong to the day they started — a session that runs past midnight ap
 
 ```
 vibe uninstall
-vibe hooks uninstall   # if you tracked Claude Code Desktop
+vibe hooks uninstall         # if you tracked Claude Code Desktop
+vibe hooks uninstall codex   # if you tracked Codex Desktop
 npm uninstall -g vibetime-cli
 ```
 
-`vibe uninstall` removes all shell hooks from your rc file, and `vibe hooks uninstall` removes the Claude Code Desktop hooks from `~/.claude/settings.json`. Your session data in `~/.vibe/` is preserved — delete it manually if you want a clean removal.
+`vibe uninstall` removes all shell hooks from your rc file. The two `vibe hooks uninstall` commands remove Vibetime's hooks from `~/.claude/settings.json` and `~/.codex/hooks.json` while preserving other hooks. Your session data in `~/.vibe/` is preserved — delete it manually if you want a clean removal.
 
 ## Privacy
 
@@ -165,7 +181,7 @@ Vibetime has no telemetry and no account by default. Everything stays on your ma
 
 It reads **git metadata only** — commit counts, line counts, file counts. It never reads file contents, environment variables, API keys, or anything you type into the wrapped tool. The AI CLI's stdin/stdout are passed straight through via `spawn` with `stdio: 'inherit'`.
 
-The Claude Code Desktop hooks are held to the same standard: they read only the session id and working directory from the hook payload — never the transcript, your prompts, or the model's output — and derive the same git metadata from there.
+The Claude Code and Codex Desktop hooks are held to the same standard: they read only the session id and working directory from the hook payload — never the transcript, your prompts, or the model's output — and derive the same git metadata from there.
 
 All data is stored locally in `~/.vibe/`. If you've signed in to the leaderboard, see the section above for the exact fields submitted.
 
