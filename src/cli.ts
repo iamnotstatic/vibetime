@@ -94,7 +94,7 @@ program
     await refreshAndReap();
     const sessions = getSessions();
     const recent = sessions.slice(-20).reverse();
-    console.log(renderLog(recent));
+    console.log(renderLog(recent, sessions));
   });
 
 program
