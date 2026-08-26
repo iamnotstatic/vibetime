@@ -3,7 +3,7 @@
 import { Command } from 'commander';
 import { getSessions } from './db.js';
 import { refreshAndReap } from './rescore.js';
-import { readConfig, writeConfig, addTool } from './config.js';
+import { readConfig, writeConfig, addTool, removeTool } from './config.js';
 import { renderStatus, renderLog, renderLeaderboard } from './render.js';
 import { renderTerminalCard, writeHtmlCard } from './share.js';
 import { wrapTool } from './wrap.js';
@@ -208,6 +208,13 @@ configCmd
   .description('track a new AI CLI tool')
   .action(async (name: string) => {
     await addTool(name);
+  });
+
+configCmd
+  .command('remove-tool <name>')
+  .description('stop tracking an AI CLI tool')
+  .action((name: string) => {
+    removeTool(name);
   });
 
 configCmd

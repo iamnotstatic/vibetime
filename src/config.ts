@@ -3,7 +3,7 @@ import { homedir, userInfo } from 'node:os';
 import { mkdirSync, chmodSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import chalk from 'chalk';
-import { DEFAULT_TOOLS, detectShell, appendHook } from './init.js';
+import { DEFAULT_TOOLS, detectShell, appendHook, removeHook } from './init.js';
 import { PURPLE } from './colors.js';
 
 const RED = chalk.hex('#EF4444');
@@ -62,11 +62,6 @@ export function addTool(name: string): void {
     return;
   }
 
-  if (DEFAULT_TOOLS.includes(name)) {
-    console.log(`\n  ${PURPLE('◆')} ${name} is already added by vibe init\n`);
-    return;
-  }
-
   const { rcFile } = detectShell();
 
   if (!existsSync(rcFile)) {
@@ -74,11 +69,39 @@ export function addTool(name: string): void {
     return;
   }
 
+  // A default tool is only "already added by vibe init" while its hooks are
+  // actually in the rc file — after a remove-tool it can be re-added.
   const added = appendHook(name, rcFile);
   if (added) {
     console.log(`\n  ${PURPLE('◆')} ${name} added. restart your terminal to start tracking.\n`);
+  } else if (DEFAULT_TOOLS.includes(name.toLowerCase())) {
+    console.log(`\n  ${PURPLE('◆')} ${name} is already added by vibe init\n`);
   } else {
     console.log(`\n  ${PURPLE('◆')} ${name} is already being tracked.\n`);
+  }
+}
+
+export function removeTool(name: string): void {
+  if (/\s/.test(name)) {
+    console.log(`\n  ${RED('✗')} tool name must be a single word\n`);
+    return;
+  }
+
+  const { rcFile } = detectShell();
+
+  if (!existsSync(rcFile)) {
+    console.log(`\n  ${PURPLE('◆')} nothing to remove — ${rcFile} not found\n`);
+    return;
+  }
+
+  const removed = removeHook(name, rcFile);
+  if (removed) {
+    console.log(`\n  ${PURPLE('◆')} ${name} removed. restart your terminal to stop tracking.\n`);
+    if (DEFAULT_TOOLS.includes(name.toLowerCase())) {
+      console.log(`  bring it back anytime: vibe config add-tool ${name}\n`);
+    }
+  } else {
+    console.log(`\n  ${PURPLE('◆')} ${name} is not being tracked.\n`);
   }
 }
 
