@@ -65,25 +65,46 @@ console.log(`\nvibetime.club/leaderboard`);
 console.log();
 
 if (wantHtml) {
-  // Same visual family as the vibe share card: dark ground, mono, purple.
-  const avatar = (r) => r.avatar_url
-    ? `<img src="${r.avatar_url}${r.avatar_url.includes('?') ? '&' : '?'}s=96" width="44" height="44" style="border-radius:50%;display:block;">`
-    : `<div style="width:44px;height:44px;border-radius:50%;background:#1a1a1a;"></div>`;
-  const podiumRows = rows.map((r, i) => `
-    <div style="display:flex;align-items:center;gap:14px;background:${i === 0 ? '#161221' : '#111'};border-radius:8px;padding:14px 18px;${i === 0 ? 'border:1px solid #2c2440;' : ''}">
-      <div style="font-size:26px;">${medals[i]}</div>
-      ${avatar(r)}
-      <div style="flex:1;color:#e5e5e5;font-size:${i === 0 ? 20 : 17}px;">${r.handle}</div>
-      <div style="color:#a78bfa;font-size:${i === 0 ? 22 : 18}px;font-weight:600;">${r.ships} <span style="color:#666;font-size:13px;font-weight:400;">ship${r.ships === 1 ? '' : 's'}</span></div>
-    </div>`).join('');
+  // Same visual family as the vibe share card, staged for Twitter: near-16:9
+  // card, the winner as the centered hero, runners-up clearly secondary.
+  const avatarImg = (r, size) => r.avatar_url
+    ? `<img src="${r.avatar_url}${r.avatar_url.includes('?') ? '&' : '?'}s=${size * 2}" width="${size}" height="${size}" style="border-radius:50%;display:block;">`
+    : `<div style="width:${size}px;height:${size}px;border-radius:50%;background:#1a1a1a;"></div>`;
+
+  const winner = rows[0];
+  const runners = rows.slice(1);
+
+  const winnerBlock = `
+  <div style="display:flex;flex-direction:column;align-items:center;margin:30px 0 36px;">
+    <div style="position:relative;background:radial-gradient(circle,rgba(124,58,237,0.25) 0%,rgba(124,58,237,0) 70%);padding:26px 26px 18px;">
+      <div style="border:3px solid #a78bfa;border-radius:50%;padding:4px;box-shadow:0 0 60px rgba(124,58,237,0.5);">${avatarImg(winner, 100)}</div>
+      <div style="position:absolute;bottom:2px;left:50%;transform:translateX(-50%);background:#a78bfa;color:#0d0d0d;font-size:13px;font-weight:700;padding:3px 12px;border-radius:999px;letter-spacing:1px;">#1</div>
+    </div>
+    <div style="color:#fff;font-size:34px;font-weight:600;margin-top:10px;">${winner.handle}</div>
+    <div style="margin-top:8px;"><span style="color:#a78bfa;font-size:36px;font-weight:700;">${winner.ships}</span> <span style="color:#777;font-size:16px;">ship${winner.ships === 1 ? '' : 's'} this week</span></div>
+  </div>`;
+
+  const runnersBlock = runners.length === 0 ? '' : `
+  <div style="display:flex;gap:16px;">
+    ${runners.map((r, i) => `
+    <div style="flex:1;display:flex;align-items:center;gap:14px;background:#111;border:1px solid #1c1c1c;border-radius:12px;padding:16px 22px;">
+      <div style="color:#666;font-size:15px;font-weight:700;min-width:26px;">#${i + 2}</div>
+      ${avatarImg(r, 44)}
+      <div style="flex:1;color:#ddd;font-size:17px;">${r.handle}</div>
+      <div style="color:#a78bfa;font-size:20px;font-weight:600;">${r.ships}<span style="color:#666;font-size:12px;font-weight:400;"> ship${r.ships === 1 ? '' : 's'}</span></div>
+    </div>`).join('')}
+  </div>`;
 
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>vibe · top shippers</title></head>
-<body style="margin:0;background:#0a0a0a;display:flex;justify-content:center;padding:60px 0;">
-<div style="width:560px;background:#0d0d0d;border:1px solid #1a1a1a;border-radius:12px;padding:32px;font-family:'SF Mono','Fira Code','Consolas',monospace;">
-  <div style="color:#a78bfa;font-size:15px;margin-bottom:4px;">◆ vibe · top shippers</div>
-  <div style="color:#666;font-size:13px;margin-bottom:24px;">${range}</div>
-  <div style="display:flex;flex-direction:column;gap:10px;">${podiumRows}</div>
-  <div style="color:#444;font-size:12px;margin-top:24px;">vibetime.club/leaderboard</div>
+<body style="margin:0;background:#0a0a0a;display:flex;justify-content:center;align-items:center;min-height:100vh;">
+<div style="width:1000px;background:linear-gradient(180deg,#0f0d16 0%,#0d0d0d 45%);border:1px solid #1c1c1c;border-radius:16px;padding:44px 56px 40px;font-family:'SF Mono','Fira Code','Consolas',monospace;">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;">
+    <div style="color:#a78bfa;font-size:17px;">◆ vibe <span style="color:#555;">·</span> <span style="color:#e5e5e5;">top shippers</span></div>
+    <div style="color:#666;font-size:14px;">${range}</div>
+  </div>
+  ${winnerBlock}
+  ${runnersBlock}
+  <div style="color:#555;font-size:13px;margin-top:36px;text-align:center;">vibetime.club/leaderboard</div>
 </div>
 </body></html>`;
 
