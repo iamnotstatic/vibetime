@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { readFileSync, writeFileSync, renameSync, mkdirSync, rmdirSync, unlinkSync, statSync, existsSync } from 'node:fs';
 import { VIBE_DIR, ensureVibeDir } from './config.js';
+import { TUNABLES } from './remote-config.js';
 import type { MomentumTier } from './score.js';
 import type { RepoBaseline } from './git.js';
 
@@ -43,7 +44,10 @@ interface DbSchema {
   sessions: Session[];
 }
 
-export const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+// Server-tunable via /config (clamped, cached in ~/.vibe/remote-config.json);
+// 30 minutes unless the server says otherwise. Re-exported here because every
+// consumer of the timeout historically imports it from db.
+export const INACTIVITY_TIMEOUT_MS = TUNABLES.inactivityTimeoutMs;
 
 const DB_PATH = join(VIBE_DIR, 'sessions.json');
 const TMP_PATH = DB_PATH + '.tmp';

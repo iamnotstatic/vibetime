@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { chmodSync, existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import open from 'open';
 import { VIBE_DIR, ensureVibeDir } from './config.js';
 import { request, GITHUB_CLIENT_ID, ApiError } from './api.js';
@@ -16,6 +16,9 @@ export interface AuthRecord {
   handle: string;
   avatarUrl: string | null;
   issuedAt: string;
+  // Absent on logins from pre-v0.7 CLIs; those carry a long-lived jwt instead
+  // and fall back to a fresh login when it eventually expires.
+  refreshToken?: string;
 }
 
 export function clearAuth(): void {
@@ -38,8 +41,52 @@ interface PollResponse {
 
 interface ExchangeResponse {
   jwt: string;
+  refreshToken?: string;
   handle: string;
   avatarUrl: string | null;
+}
+
+// Seconds-precision exp claim from the jwt body, without verifying (the server
+// verifies; the client only needs it to know when to renew).
+export function jwtExpiresAtMs(jwt: string): number | null {
+  try {
+    const body = jwt.split('.')[1];
+    const pad = body.length % 4 === 0 ? '' : '='.repeat(4 - (body.length % 4));
+    const payload = JSON.parse(Buffer.from(body.replace(/-/g, '+').replace(/_/g, '/') + pad, 'base64').toString('utf-8')) as { exp?: number };
+    return typeof payload.exp === 'number' ? payload.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+// Swap the refresh token for a fresh access jwt. Returns the record to use:
+// the renewed one on success, the existing one when the server is unreachable
+// (the old jwt may still be valid), or null when the server rejects the
+// refresh token — auth is dead, and it's cleared so a fresh login can retry.
+export async function refreshAuth(auth: AuthRecord, timeoutMs = 3000): Promise<AuthRecord | null> {
+  if (!auth.refreshToken) return auth;
+  try {
+    const renewed = await request<ExchangeResponse>('/auth/refresh', {
+      method: 'POST',
+      body: { refresh_token: auth.refreshToken },
+      timeoutMs,
+    });
+    const record: AuthRecord = {
+      jwt: renewed.jwt,
+      handle: renewed.handle,
+      avatarUrl: renewed.avatarUrl,
+      issuedAt: new Date().toISOString(),
+      refreshToken: auth.refreshToken,
+    };
+    writeAuth(record);
+    return record;
+  } catch (e) {
+    if (e instanceof ApiError && (e.status === 401 || e.status === 400)) {
+      clearAuth();
+      return null;
+    }
+    return auth;
+  }
 }
 
 export function readAuth(): AuthRecord | null {
@@ -53,7 +100,12 @@ export function readAuth(): AuthRecord | null {
 
 function writeAuth(record: AuthRecord): void {
   ensureVibeDir();
-  writeFileSync(AUTH_PATH, JSON.stringify(record, null, 2) + '\n');
+  // Write-then-rename: background flushes in the wrapper and hook processes
+  // rewrite this file on renewal, and a torn concurrent write would read as
+  // logged-out forever. Rename makes the swap atomic, like sessions.json.
+  const tmp = `${AUTH_PATH}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(record, null, 2) + '\n', { mode: 0o600 });
+  renameSync(tmp, AUTH_PATH);
   chmodSync(AUTH_PATH, 0o600);
 }
 
@@ -102,6 +154,7 @@ export async function login(): Promise<void> {
     handle: exchanged.handle,
     avatarUrl: exchanged.avatarUrl,
     issuedAt: new Date().toISOString(),
+    refreshToken: exchanged.refreshToken,
   });
   console.log(`  ${PURPLE('◆')} logged in as ${PURPLE('@' + exchanged.handle)}\n`);
 }
@@ -133,10 +186,20 @@ async function pollGithub(device: DeviceCodeResponse): Promise<string | null> {
   return null;
 }
 
-export function logout(): void {
+export async function logout(): Promise<void> {
   if (!existsSync(AUTH_PATH)) {
     console.log(`\n  ${PURPLE('◆')} not logged in\n`);
     return;
+  }
+  // Best-effort server-side revocation so the refresh token can't be reused;
+  // local logout succeeds regardless.
+  const auth = readAuth();
+  if (auth?.refreshToken) {
+    await request('/auth/logout', {
+      method: 'POST',
+      body: { refresh_token: auth.refreshToken },
+      timeoutMs: 3000,
+    }).catch(() => {});
   }
   unlinkSync(AUTH_PATH);
   console.log(`\n  ${PURPLE('◆')} logged out\n`);

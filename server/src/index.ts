@@ -1,7 +1,8 @@
 import type { Env } from './env.js';
-import { exchangeAuth } from './routes/auth.js';
+import { exchangeAuth, refreshAuth, revokeAuth } from './routes/auth.js';
 import { submitSession } from './routes/sessions.js';
 import { leaderboardJson, leaderboardHtml } from './routes/leaderboard.js';
+import { clientConfig } from './routes/config.js';
 import { error } from './http.js';
 
 // bump this when a new CLI release should be recommended to clients
@@ -34,6 +35,12 @@ export default {
       switch (route) {
         case 'POST /auth/exchange':
           return withCors(await exchangeAuth(request, env));
+        case 'POST /auth/refresh':
+          return withCors(await refreshAuth(request, env));
+        case 'POST /auth/logout':
+          return withCors(await revokeAuth(request, env));
+        case 'GET /config':
+          return withCors(clientConfig());
         case 'POST /sessions':
           return withCors(await submitSession(request, env));
         case 'GET /leaderboard.json':
