@@ -8,8 +8,9 @@ import { renderStatus, renderLog, renderLeaderboard } from './render.js';
 import { renderTerminalCard, writeHtmlCard } from './share.js';
 import { wrapTool } from './wrap.js';
 import { initShellHooks, removeShellHooks } from './init.js';
-import { installClaudeHooks, removeClaudeHooks } from './claude-hooks.js';
-import { handleHook } from './hook.js';
+import { installClaudeHooks, removeClaudeHooks, claudePresent } from './claude-hooks.js';
+import { installCodexHooks, removeCodexHooks, codexPresent } from './codex-hooks.js';
+import { handleHook, type HookTool } from './hook.js';
 import { login, logout, readAuth } from './auth.js';
 import { fetchLeaderboard } from './leaderboard.js';
 import { flushPendingSubmissions } from './submit.js';
@@ -38,29 +39,56 @@ program
   .version(version)
   .enablePositionalOptions();
 
+// One pass covers every desktop app, mirroring how `vibe init` wraps every
+// terminal tool. Presence-gated so we never write config for an app that was
+// never installed. During init, absent apps are skipped silently — the noise
+// is only useful when the user asked for desktop hooks by name.
+function installDesktopHooks(explicit: boolean): void {
+  const claude = claudePresent();
+  const codex = codexPresent();
+  if (!claude && !codex) {
+    if (explicit) console.log(`\n  ${RED('✗')} vibe: no desktop apps found (looked for ~/.claude and ~/.codex)\n`);
+    return;
+  }
+  if (claude) installClaudeHooks();
+  else if (explicit) console.log(`\n  ${PURPLE('◆')} claude code not found, skipped\n`);
+  if (codex) installCodexHooks();
+  else if (explicit) console.log(`\n  ${PURPLE('◆')} codex not found, skipped\n`);
+}
+
 program
   .command('init')
-  .description('set up shell hooks for session tracking')
-  .action(initShellHooks);
+  .description('set up session tracking: shell wrapper + desktop hooks')
+  .action(() => {
+    initShellHooks();
+    installDesktopHooks(false);
+  });
 
 program
   .command('uninstall')
-  .description('remove shell hooks')
-  .action(removeShellHooks);
+  .description('remove shell hooks and desktop hooks')
+  .action(() => {
+    removeShellHooks();
+    removeClaudeHooks();
+    removeCodexHooks();
+  });
 
 const hooksCmd = program
   .command('hooks')
-  .description('track Claude Code Desktop via session hooks');
+  .description('track desktop coding sessions via lifecycle hooks');
 
 hooksCmd
   .command('install')
-  .description('track Claude Code Desktop sessions (no shell wrapper needed)')
-  .action(installClaudeHooks);
+  .description('track Claude Code and Codex Desktop sessions')
+  .action(() => installDesktopHooks(true));
 
 hooksCmd
   .command('uninstall')
-  .description('stop tracking Claude Code Desktop sessions')
-  .action(removeClaudeHooks);
+  .description('stop tracking Claude Code and Codex Desktop sessions')
+  .action(() => {
+    removeClaudeHooks();
+    removeCodexHooks();
+  });
 
 program
   .command('status')
@@ -233,18 +261,23 @@ program
     await wrapTool(tool, args);
   });
 
-// Invoked by Claude Code hooks with the event payload on stdin. Must stay silent
-// on stdout (SessionStart stdout is fed to the model) and always exit cleanly so
-// it can never interfere with the user's session.
+// Invoked by Claude Code or Codex hooks with the event payload on stdin. Must stay
+// silent on stdout (SessionStart stdout is fed to the model) except for the codex
+// Stop response, and always exit the moment the work is done — a lingering handle
+// (e.g. a submit's keep-alive socket) must never hold the host's hook slot open.
 program
   .command('__hook', { hidden: true })
   .argument('<event>', 'session-start | activity | session-end')
+  .option('--tool <tool>', 'claude | codex', 'claude')
+  .option('--respond-json', 'write an empty JSON hook response')
   .helpOption(false)
-  .action(async (event: string) => {
+  .action(async (event: string, opts: { tool: string; respondJson?: boolean }) => {
     try {
-      await handleHook(event, await readStdin());
+      const tool: HookTool = opts.tool === 'codex' ? 'codex' : 'claude';
+      await handleHook(event, await readStdin(), tool);
     } catch {}
-    process.exit(0);
+    if (opts.respondJson) process.stdout.write('{}\n', () => process.exit(0));
+    else process.exit(0);
   });
 
 function readStdin(): Promise<string> {

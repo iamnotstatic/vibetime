@@ -42,8 +42,8 @@ function freshDb() {
   rmSync(join(process.env.VIBE_DIR, 'sessions.json'), { force: true });
 }
 
-function hook(event, sessionId, cwd) {
-  return handleHook(event, JSON.stringify({ session_id: sessionId, cwd }));
+function hook(event, sessionId, cwd, tool) {
+  return handleHook(event, JSON.stringify({ session_id: sessionId, cwd }), tool);
 }
 
 function find(id) {
@@ -156,4 +156,17 @@ test('a session that never ended cleanly still reaps as interrupted, then reopen
   s = find(id);
   assert.equal(s.exitCode, -1);
   assert.equal(s.commits, 1);
+});
+
+test('Codex hook sessions are labelled separately from Claude sessions', async (t) => {
+  freshDb();
+  const repo = initRepo(scratch(t), 'repo');
+  const codexId = randomUUID();
+  const claudeId = randomUUID();
+
+  await hook('session-start', codexId, repo, 'codex');
+  await hook('session-start', claudeId, repo);
+
+  assert.equal(find(codexId).tool, 'codex');
+  assert.equal(find(claudeId).tool, 'claude');
 });

@@ -10,6 +10,11 @@ const RED = chalk.hex('#EF4444');
 const CLAUDE_DIR = join(homedir(), '.claude');
 const SETTINGS_PATH = join(CLAUDE_DIR, 'settings.json');
 
+// Claude Code creates ~/.claude on first run, so its presence is the install signal.
+export function claudePresent(): boolean {
+  return existsSync(CLAUDE_DIR);
+}
+
 // Claude Code hook event -> the internal `vibe __hook <event>` we dispatch to.
 // SessionStart opens the session, SessionEnd closes and submits it, and the
 // per-turn events keep the active-time accumulator honest between the two.

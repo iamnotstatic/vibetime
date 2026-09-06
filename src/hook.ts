@@ -6,9 +6,9 @@ import { readConfig } from './config.js';
 import { scoreSession } from './score.js';
 import { flushPendingSubmissions } from './submit.js';
 
-// Claude Code delivers a JSON payload on stdin to every hook command. We read
-// only the fields below — never the transcript contents — so hook-tracked
-// sessions stay within vibetime's "git metadata only" privacy model.
+// Claude Code and Codex deliver a JSON payload on stdin to every hook command.
+// We read only the fields below — never the transcript contents — so hook-
+// tracked sessions stay within vibetime's "git metadata only" privacy model.
 interface HookInput {
   session_id?: string;
   cwd?: string;
@@ -24,6 +24,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const GIT_REFRESH_MS = 15_000;
 
 type HookEvent = 'session-start' | 'activity' | 'session-end';
+export type HookTool = 'claude' | 'codex';
 
 const EMPTY_STATS: GitDiffStats = { commits: 0, linesAdded: 0, linesRemoved: 0, filesTouched: 0 };
 
@@ -80,10 +81,10 @@ function reopenKind(session: Session, now: number): 'reaped' | 'clean' | null {
   return null;
 }
 
-export async function handleHook(event: string, raw: string): Promise<void> {
+export async function handleHook(event: string, raw: string, tool: HookTool = 'claude'): Promise<void> {
   // The shell wrapper (`vibe __wrap`) already tracks its child session end to
-  // end and marks it with VIBE_SESSION=1. Claude Code fires these hooks inside
-  // that wrapped process too, so bail out to avoid double-counting.
+  // end and marks it with VIBE_SESSION=1. Desktop hooks may also fire inside
+  // that wrapped process, so bail out to avoid double-counting.
   if (process.env.VIBE_SESSION === '1') return;
 
   let input: HookInput;
@@ -99,7 +100,7 @@ export async function handleHook(event: string, raw: string): Promise<void> {
 
   switch (event as HookEvent) {
     case 'session-start':
-      return onSessionStart(sessionId, cwd);
+      return onSessionStart(sessionId, cwd, tool);
     case 'activity':
       return onActivity(sessionId, cwd);
     case 'session-end':
@@ -107,11 +108,11 @@ export async function handleHook(event: string, raw: string): Promise<void> {
   }
 }
 
-async function onSessionStart(sessionId: string, cwd: string): Promise<void> {
+async function onSessionStart(sessionId: string, cwd: string, tool: HookTool): Promise<void> {
   await refreshAndReap();
 
-  // SessionStart also fires on resume/clear/compact — key off the Claude
-  // session id so a session is only opened once.
+  // SessionStart can also fire when an existing conversation is resumed — key
+  // off the provider's session id so a session is only opened once.
   if (getSessions().some((s) => s.id === sessionId)) return;
 
   // The repo the session started in, or — when it started from a directory that
@@ -127,7 +128,7 @@ async function onSessionStart(sessionId: string, cwd: string): Promise<void> {
 
   const session: Session = {
     id: sessionId,
-    tool: 'claude',
+    tool,
     ...describeRepos(repos, cwd),
     startedAt,
     endedAt: startedAt,
