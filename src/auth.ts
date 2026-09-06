@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { chmodSync, existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import open from 'open';
 import { VIBE_DIR, ensureVibeDir } from './config.js';
 import { request, GITHUB_CLIENT_ID, ApiError } from './api.js';
@@ -100,7 +100,12 @@ export function readAuth(): AuthRecord | null {
 
 function writeAuth(record: AuthRecord): void {
   ensureVibeDir();
-  writeFileSync(AUTH_PATH, JSON.stringify(record, null, 2) + '\n');
+  // Write-then-rename: background flushes in the wrapper and hook processes
+  // rewrite this file on renewal, and a torn concurrent write would read as
+  // logged-out forever. Rename makes the swap atomic, like sessions.json.
+  const tmp = `${AUTH_PATH}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(record, null, 2) + '\n', { mode: 0o600 });
+  renameSync(tmp, AUTH_PATH);
   chmodSync(AUTH_PATH, 0o600);
 }
 

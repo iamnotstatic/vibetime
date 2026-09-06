@@ -8,6 +8,17 @@ import { signJwt, b64url } from '../jwt.js';
 // expire, so this change breaks nobody.
 const JWT_TTL_SECONDS = 7 * 24 * 60 * 60;
 const REFRESH_TTL_MS = 400 * 24 * 60 * 60 * 1000;
+const LEGACY_JWT_TTL_SECONDS = 365 * 24 * 60 * 60;
+
+// Pre-0.7 CLIs can't call /auth/refresh, so a 7-day token would silently log
+// them out a week after every login. They keep getting the long-lived token
+// they were built around; only refresh-capable clients get the short pair.
+function cliSupportsRefresh(request: Request): boolean {
+  const v = request.headers.get('x-cli-version');
+  if (!v) return false;
+  const [major = 0, minor = 0] = v.split('.').map((n) => parseInt(n, 10) || 0);
+  return major > 0 || minor >= 7;
+}
 
 async function sha256Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
@@ -62,8 +73,13 @@ export async function exchangeAuth(request: Request, env: Env): Promise<Response
   ).bind(gh.id, gh.login, avatarUrl, now, now).run();
 
   const iat = Math.floor(Date.now() / 1000);
-  const jwt = await signJwt({ sub: gh.id, handle: gh.login, iat, exp: iat + JWT_TTL_SECONDS }, env.JWT_SECRET);
 
+  if (!cliSupportsRefresh(request)) {
+    const jwt = await signJwt({ sub: gh.id, handle: gh.login, iat, exp: iat + LEGACY_JWT_TTL_SECONDS }, env.JWT_SECRET);
+    return json({ jwt, handle: gh.login, avatarUrl });
+  }
+
+  const jwt = await signJwt({ sub: gh.id, handle: gh.login, iat, exp: iat + JWT_TTL_SECONDS }, env.JWT_SECRET);
   const refreshToken = newRefreshToken();
   await env.DB.prepare(
     `INSERT INTO refresh_tokens (token_hash, user_github_id, created_at) VALUES (?, ?, ?)`,
