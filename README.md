@@ -66,41 +66,31 @@ Sessions are scored by what happened in git:
 
 ## Desktop apps
 
-`vibe init` wraps the `claude` **terminal** command. The Claude Code **Desktop** app never runs that command, so the shell wrapper can't see it. Track Desktop sessions with hooks instead:
+`vibe init` wraps the **terminal** commands. The Claude Code and Codex **Desktop** apps never run those commands, so the shell wrapper can't see them. Track Desktop sessions with hooks instead:
 
 ```
 vibe hooks install
 ```
 
-This registers session hooks in `~/.claude/settings.json` — the same settings the Desktop app reads. From then on, every Desktop session is recorded and shows up in `vibe status`, `vibe log`, `vibe share`, and the leaderboard, exactly like a terminal session.
+One command covers both apps. It registers session hooks in `~/.claude/settings.json` and `~/.codex/hooks.json` for whichever apps are installed, skips the ones that aren't, and never touches hooks it didn't create. From then on, every Desktop session is recorded and shows up in `vibe status`, `vibe log`, `vibe share`, and the leaderboard, exactly like a terminal session.
 
-Nothing else to run: Claude Code hot-reloads the settings, so just open a new Desktop session. Duration is measured the same way as the terminal — active coding time, with idle gaps over 30 minutes excluded.
+- **Claude Code** hot-reloads its settings: just open a new Desktop session.
+- **Codex** asks you to trust new hooks once: run `/hooks` in Codex, review the commands, then open a new session. Needs a Codex build from May 2026 or later (when hooks became generally available). Tested on macOS and Linux; Windows isn't supported yet.
+
+Duration is measured the same way as the terminal: active coding time, with idle gaps over 30 minutes excluded.
 
 **Working across several repos?** Start the session wherever you like. If that directory isn't a repo itself, vibetime picks up the repos sitting directly inside it and measures all of them, so a session that touches `api/` and `web/` is scored on both. A directory with no repos in or under it isn't tracked — there'd be nothing to measure.
 
-If you use **both** the terminal wrapper and Desktop hooks, terminal `claude` sessions are counted once, not twice — the hooks stand down when the shell wrapper is already tracking.
-
-### Codex Desktop
-
-Codex Desktop uses the same session engine through Codex lifecycle hooks:
-
-```
-vibe hooks install codex
-```
-
-This adds Vibetime's hooks to `~/.codex/hooks.json` without replacing your existing Codex hooks. In Codex, run `/hooks`, review the commands, and trust the configuration once. Then open a new Codex session. It will appear as `codex` in `vibe status`, `vibe log`, `vibe share`, and the leaderboard.
-
-Vibetime measures the git changes made while that Codex session is active. Codex sends activity events as you prompt it and use tools, then a session-end event when the session closes or is archived. Idle gaps over 30 minutes are excluded, just like Claude Desktop tracking.
+If you use **both** the terminal wrapper and Desktop hooks, terminal sessions are counted once, not twice — the hooks stand down when the shell wrapper is already tracking.
 
 > **Why hooks use absolute paths** — the Desktop app, when launched from the Dock, doesn't inherit your shell `PATH`, so a bare `vibe` wouldn't resolve. `vibe hooks install` pins the absolute path to Node and the CLI so tracking works regardless of how Desktop is launched.
 >
-> If you switch Node versions (e.g. an `nvm` upgrade) and remove the old one, re-run the relevant install command so the pinned path points at your current Node. Codex will ask you to review the changed command again.
+> If you switch Node versions (e.g. an `nvm` upgrade) and remove the old one, re-run `vibe hooks install` so the pinned path points at your current Node. Codex will ask you to review the changed commands again.
 
 Stop tracking Desktop at any time:
 
 ```
-vibe hooks uninstall         # Claude Code Desktop
-vibe hooks uninstall codex   # Codex Desktop
+vibe hooks uninstall
 ```
 
 ## Leaderboard (opt-in)
@@ -155,10 +145,8 @@ vibe leaderboard             shipped sessions, last 7 days
 vibe config show             current settings
 vibe config set handle <name> set your @handle (shown on share cards)
 vibe config add-tool <name>  track a new AI CLI tool
-vibe hooks install           track Claude Code Desktop sessions
-vibe hooks install codex     track Codex Desktop sessions
-vibe hooks uninstall         stop tracking Claude Code Desktop
-vibe hooks uninstall codex   stop tracking Codex Desktop
+vibe hooks install           track Claude Code + Codex Desktop sessions
+vibe hooks uninstall         stop tracking Desktop sessions
 vibe uninstall               remove shell hooks
 ```
 
@@ -168,12 +156,11 @@ Sessions belong to the day they started — a session that runs past midnight ap
 
 ```
 vibe uninstall
-vibe hooks uninstall         # if you tracked Claude Code Desktop
-vibe hooks uninstall codex   # if you tracked Codex Desktop
+vibe hooks uninstall   # if you tracked Desktop sessions
 npm uninstall -g vibetime-cli
 ```
 
-`vibe uninstall` removes all shell hooks from your rc file. The two `vibe hooks uninstall` commands remove Vibetime's hooks from `~/.claude/settings.json` and `~/.codex/hooks.json` while preserving other hooks. Your session data in `~/.vibe/` is preserved — delete it manually if you want a clean removal.
+`vibe uninstall` removes all shell hooks from your rc file. `vibe hooks uninstall` removes Vibetime's hooks from `~/.claude/settings.json` and `~/.codex/hooks.json` while preserving other hooks. Your session data in `~/.vibe/` is preserved — delete it manually if you want a clean removal.
 
 ## Privacy
 

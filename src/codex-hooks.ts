@@ -38,6 +38,12 @@ function defaultHooksPath(): string {
   return join(codexDir, 'hooks.json');
 }
 
+// Codex creates its config dir on first run, so its presence is the install signal.
+// Installing hooks without it would litter ~/.codex on machines that never ran Codex.
+export function codexPresent(): boolean {
+  return existsSync(dirname(defaultHooksPath()));
+}
+
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }

@@ -8,8 +8,8 @@ import { renderStatus, renderLog, renderLeaderboard } from './render.js';
 import { renderTerminalCard, writeHtmlCard } from './share.js';
 import { wrapTool } from './wrap.js';
 import { initShellHooks, removeShellHooks } from './init.js';
-import { installClaudeHooks, removeClaudeHooks } from './claude-hooks.js';
-import { installCodexHooks, removeCodexHooks } from './codex-hooks.js';
+import { installClaudeHooks, removeClaudeHooks, claudePresent } from './claude-hooks.js';
+import { installCodexHooks, removeCodexHooks, codexPresent } from './codex-hooks.js';
 import { handleHook, type HookTool } from './hook.js';
 import { login, logout, readAuth } from './auth.js';
 import { fetchLeaderboard } from './leaderboard.js';
@@ -53,24 +53,31 @@ const hooksCmd = program
   .command('hooks')
   .description('track desktop coding sessions via lifecycle hooks');
 
+// One command covers every desktop app, mirroring how `vibe init` wraps every
+// terminal tool. Presence-gated so we never write config for an app that was
+// never installed.
 hooksCmd
   .command('install')
-  .argument('[tool]', 'claude | codex', 'claude')
-  .description('track Claude Code or Codex Desktop sessions')
-  .action((tool: string) => {
-    if (tool === 'claude') return installClaudeHooks();
-    if (tool === 'codex') return installCodexHooks();
-    console.log(`\n  ${RED('✗')} vibe: hooks tool must be "claude" or "codex"\n`);
+  .description('track Claude Code and Codex Desktop sessions')
+  .action(() => {
+    const claude = claudePresent();
+    const codex = codexPresent();
+    if (!claude && !codex) {
+      console.log(`\n  ${RED('✗')} vibe: no desktop apps found (looked for ~/.claude and ~/.codex)\n`);
+      return;
+    }
+    if (claude) installClaudeHooks();
+    else console.log(`\n  ${PURPLE('◆')} claude code not found, skipped\n`);
+    if (codex) installCodexHooks();
+    else console.log(`\n  ${PURPLE('◆')} codex not found, skipped\n`);
   });
 
 hooksCmd
   .command('uninstall')
-  .argument('[tool]', 'claude | codex', 'claude')
-  .description('stop tracking Claude Code or Codex Desktop sessions')
-  .action((tool: string) => {
-    if (tool === 'claude') return removeClaudeHooks();
-    if (tool === 'codex') return removeCodexHooks();
-    console.log(`\n  ${RED('✗')} vibe: hooks tool must be "claude" or "codex"\n`);
+  .description('stop tracking Claude Code and Codex Desktop sessions')
+  .action(() => {
+    removeClaudeHooks();
+    removeCodexHooks();
   });
 
 program
@@ -244,9 +251,10 @@ program
     await wrapTool(tool, args);
   });
 
-// Invoked by Claude Code or Codex hooks with the event payload on stdin. It stays
-// silent unless Codex requires an empty JSON response, and always exits cleanly
-// so tracking can never interfere with the user's session.
+// Invoked by Claude Code or Codex hooks with the event payload on stdin. Must stay
+// silent on stdout (SessionStart stdout is fed to the model) except for the codex
+// Stop response, and always exit the moment the work is done — a lingering handle
+// (e.g. a submit's keep-alive socket) must never hold the host's hook slot open.
 program
   .command('__hook', { hidden: true })
   .argument('<event>', 'session-start | activity | session-end')
@@ -258,8 +266,8 @@ program
       const tool: HookTool = opts.tool === 'codex' ? 'codex' : 'claude';
       await handleHook(event, await readStdin(), tool);
     } catch {}
-    if (opts.respondJson) process.stdout.write('{}\n');
-    process.exitCode = 0;
+    if (opts.respondJson) process.stdout.write('{}\n', () => process.exit(0));
+    else process.exit(0);
   });
 
 function readStdin(): Promise<string> {
