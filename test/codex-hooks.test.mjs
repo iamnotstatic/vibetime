@@ -76,6 +76,46 @@ test('reinstall refreshes stale commands without duplicating hooks', () => {
   assert.doesNotMatch(vibeGroups[0].hooks[0].command, /old\/node/);
 });
 
+// What Codex writes to hooks.json when it imports ~/.claude/settings.json: the
+// Claude Code entries verbatim, so no --tool codex and a SessionEnd timeout
+// above the 3s Codex allows.
+function importedClaudeHook(event) {
+  return { hooks: [{ type: 'command', command: `'/usr/bin/node' '/lib/vibetime-cli/dist/cli.js' __hook ${event}`, timeout: 10 }] };
+}
+
+test('reinstall replaces Claude Code hooks that Codex imported', () => {
+  const unrelated = otherHook();
+  const config = {
+    hooks: {
+      SessionStart: [importedClaudeHook('session-start')],
+      UserPromptSubmit: [importedClaudeHook('activity')],
+      PostToolUse: [{ matcher: '', ...importedClaudeHook('activity') }],
+      Stop: [importedClaudeHook('activity'), unrelated],
+      SessionEnd: [importedClaudeHook('session-end')],
+    },
+  };
+
+  const { config: merged, added, existing, updated } = mergeCodexHooks(config);
+  assert.equal(added, 0);
+  assert.equal(existing, 5);
+  assert.equal(updated, 5);
+  for (const event of ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop', 'SessionEnd']) {
+    const vibeGroups = merged.hooks[event].filter((group) => group.hooks.some((hook) => hook.command.includes('__hook')));
+    assert.equal(vibeGroups.length, 1, event);
+    assert.match(vibeGroups[0].hooks[0].command, /--tool codex/, event);
+  }
+  assert.equal(merged.hooks.SessionEnd[0].hooks[0].timeout, 3);
+  assert.equal(merged.hooks.Stop[0], unrelated);
+});
+
+test('uninstall removes Claude Code hooks that Codex imported', () => {
+  const { config, removed } = stripCodexHooks({
+    hooks: { SessionEnd: [importedClaudeHook('session-end'), otherHook()] },
+  });
+  assert.equal(removed, 1);
+  assert.deepEqual(config.hooks, { SessionEnd: [otherHook()] });
+});
+
 test('Codex hook removal preserves unrelated hooks and top-level settings', () => {
   const config = mergeCodexHooks({
     description: 'keep me',

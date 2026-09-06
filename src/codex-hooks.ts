@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import chalk from 'chalk';
 import { PURPLE } from './colors.js';
+import { isVibeHook } from './claude-hooks.js';
 
 const RED = chalk.hex('#EF4444');
 
@@ -64,14 +65,6 @@ export function codexHookCommandWindows(event: HookEvent, hookEventName: string)
   return hookInvocation(event, hookEventName, winQuote);
 }
 
-function isCodexVibeHook(group: HookGroup): boolean {
-  return Array.isArray(group?.hooks) && group.hooks.some(
-    (hook) => typeof hook?.command === 'string'
-      && hook.command.includes('__hook')
-      && hook.command.includes('--tool codex'),
-  );
-}
-
 export function mergeCodexHooks(config: CodexHooksConfig): {
   config: CodexHooksConfig;
   added: number;
@@ -97,11 +90,11 @@ export function mergeCodexHooks(config: CodexHooksConfig): {
     };
     if (codexEvent === 'PostToolUse') group.matcher = '';
 
-    const ours = list.filter(isCodexVibeHook);
+    const ours = list.filter(isVibeHook);
     if (ours.length > 0) {
       existing++;
       if (ours.length !== 1 || JSON.stringify(ours[0]) !== JSON.stringify(group)) updated++;
-      hooks[codexEvent] = [...list.filter((candidate) => !isCodexVibeHook(candidate)), group];
+      hooks[codexEvent] = [...list.filter((candidate) => !isVibeHook(candidate)), group];
     } else {
       list.push(group);
       hooks[codexEvent] = list;
@@ -121,7 +114,7 @@ export function stripCodexHooks(config: CodexHooksConfig): { config: CodexHooksC
     const list = config.hooks[event];
     if (!Array.isArray(list)) continue;
     const kept = list.filter((group) => {
-      const ours = isCodexVibeHook(group);
+      const ours = isVibeHook(group);
       if (ours) removed++;
       return !ours;
     });
