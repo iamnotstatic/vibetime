@@ -3,7 +3,7 @@ import { addSession, updateSession, getSessions, INACTIVITY_TIMEOUT_MS, type Ses
 import { isGitRepo, getHeadSha, getDiffStats, getReposDiffStats, baselineRepos, describeRepos, type GitDiffStats } from './git.js';
 import { refreshAndReap } from './rescore.js';
 import { readConfig } from './config.js';
-import { scoreSession } from './score.js';
+import { scoreSession, trackShipEvents } from './score.js';
 import { flushPendingSubmissions } from './submit.js';
 
 // Claude Code and Codex deliver a JSON payload on stdin to every hook command.
@@ -176,8 +176,10 @@ async function onActivity(sessionId: string, cwd: string): Promise<void> {
   if (reopen || gap >= GIT_REFRESH_MS) {
     const stats = diffFor(session, cwd);
     if (stats) {
+      const config = readConfig();
       Object.assign(updates, stats);
-      updates.momentum = scoreSession({ ...stats, exitCode: -1 }, readConfig());
+      updates.momentum = scoreSession({ ...stats, exitCode: -1 }, config);
+      Object.assign(updates, trackShipEvents(session, stats, config, now) ?? {});
     }
   }
 
@@ -195,12 +197,13 @@ async function onSessionEnd(sessionId: string, cwd: string): Promise<void> {
   if (session.exitCode !== -1 && !reopen) return; // finalized — stale events can't revive it
 
   const stats = diffFor(session, cwd);
+  const config = readConfig();
   const updates: Partial<Session> = {
     endedAt: new Date(now).toISOString(),
     durationSeconds: session.durationSeconds + (reopen === 'reaped' ? 0 : activeSecondsSince(session.lastActivityAt, session.startedAt, now)),
     // Rescore as a clean end even when the repos can't be measured (moved or
     // deleted): the recorded stats stand, but a reaped `interrupted` must not.
-    momentum: scoreSession({ ...(stats ?? session), exitCode: 0 }, readConfig()),
+    momentum: scoreSession({ ...(stats ?? session), exitCode: 0 }, config),
     exitCode: 0,
     hadCleanEnd: true,
     lastActivityAt: new Date(now).toISOString(),
@@ -208,6 +211,7 @@ async function onSessionEnd(sessionId: string, cwd: string): Promise<void> {
     submittedAt: undefined,
   };
   if (stats) Object.assign(updates, stats);
+  Object.assign(updates, trackShipEvents(session, stats ?? session, config, now) ?? {});
 
   try {
     await updateSession(sessionId, updates);

@@ -21,7 +21,7 @@ function relativeTime(iso: string, now: Date): string {
 function heatmapCells(recent: HeatmapDay[]): string {
   return recent.map(({ day, n }) => {
     const cls = n === 0 ? 'cell-0' : n === 1 ? 'cell-1' : n <= 3 ? 'cell-2' : 'cell-3';
-    const noun = n === 1 ? 'shipped session' : 'shipped sessions';
+    const noun = n === 1 ? 'ship' : 'ships';
     return `<span class="cell ${cls}" title="${escapeHtml(day)} · ${n} ${noun}" aria-hidden="true"></span>`;
   }).join('');
 }
@@ -52,7 +52,7 @@ function windowRange(start: Date, now: Date): string {
 export function renderLeaderboard(data: LeaderboardData, window: Window, updatedAt: Date, windowStart?: Date | null): string {
   const { entries, devCount, sessionCount } = data;
   const devNoun = devCount === 1 ? 'developer' : 'developers';
-  const sessionNoun = sessionCount === 1 ? 'shipped session' : 'shipped sessions';
+  const sessionNoun = sessionCount === 1 ? 'ship' : 'ships';
   const rangeLabel = windowStart ? ` <span class="range">· ${windowRange(windowStart, updatedAt)}</span>` : '';
   const scaleLine = entries.length === 0
     ? ''
@@ -180,7 +180,7 @@ vibe login</pre>
     more
   </div>
   <footer>
-    <div class="definition"><strong style="color:#777">shipped</strong> = a session with at least one commit and meaningful changes (≥50 lines or ≥3 files).</div>
+    <div class="definition"><strong style="color:#777">shipped</strong> = a day a session landed at least one commit with meaningful changes (≥50 lines or ≥3 files). A session that ships across several days counts each day.</div>
     <div class="links"><a href="https://github.com/iamnotstatic/vibetime">github.com/iamnotstatic/vibetime</a> · <code>npm i -g vibetime-cli</code></div>
   </footer>
 </main>

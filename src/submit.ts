@@ -24,6 +24,9 @@ function buildPayload(s: Session): Record<string, unknown> {
     linesRemoved: s.linesRemoved,
     filesTouched: s.filesTouched,
     momentum: s.momentum,
+    // Absent on sessions recorded by a pre-0.8 CLI; the server derives a
+    // single end-day event from momentum for those.
+    ...(s.shipEvents?.length ? { shipEvents: s.shipEvents } : {}),
   };
 }
 
