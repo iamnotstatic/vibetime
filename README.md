@@ -25,7 +25,7 @@ vibe init
 source ~/.zshrc   # or ~/.bashrc — or restart your terminal
 ```
 
-One command sets up everything: shell hooks that wrap `claude`, `codex`, and `gemini` in the terminal, plus desktop session hooks for the Claude Code and Codex apps you have installed (see [Desktop apps](#desktop-apps)). The tools work exactly the same — Vibetime tracks your git state while you code and prints the endcard when you're done.
+One command sets up everything: shell hooks that wrap `claude`, `codex`, and `gemini` in the terminal, plus desktop session hooks for the Claude Code and Codex apps (see [Desktop apps](#desktop-apps)). The tools work exactly the same — Vibetime tracks your git state while you code and prints the endcard when you're done.
 
 **Fish shell** — `vibe init` writes bash/zsh syntax. Fish users should add hooks manually to `~/.config/fish/config.fish`:
 
@@ -72,7 +72,7 @@ The Claude Code and Codex **Desktop** apps never run the wrapped terminal comman
 vibe hooks install
 ```
 
-Either way it registers session hooks in `~/.claude/settings.json` and `~/.codex/hooks.json` for whichever apps are installed, skips the ones that aren't, and never touches hooks it didn't create. From then on, every Desktop session is recorded and shows up in `vibe status`, `vibe log`, `vibe share`, and the leaderboard, exactly like a terminal session.
+Either way it registers session hooks in `~/.claude/settings.json` and `~/.codex/hooks.json` for both apps, including one you haven't installed yet: hooks are inert config until the app exists, so if you switch apps months from now you're already tracked without re-running anything. Hooks Vibetime didn't create are never touched. From then on, every Desktop session is recorded and shows up in `vibe status`, `vibe log`, `vibe share`, and the leaderboard, exactly like a terminal session.
 
 - **Claude Code** hot-reloads its settings: just open a new Desktop session.
 - **Codex** asks you to trust new hooks once: run `/hooks` in Codex, review the commands, then open a new session. Needs a Codex build from May 2026 or later (when hooks became generally available). Tested on macOS and Linux. Windows is untested: the hooks include a Windows command variant, reports welcome.

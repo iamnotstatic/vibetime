@@ -8,8 +8,8 @@ import { renderStatus, renderLog, renderLeaderboard } from './render.js';
 import { renderTerminalCard, writeHtmlCard } from './share.js';
 import { wrapTool } from './wrap.js';
 import { initShellHooks, removeShellHooks } from './init.js';
-import { installClaudeHooks, removeClaudeHooks, claudePresent } from './claude-hooks.js';
-import { installCodexHooks, removeCodexHooks, codexPresent } from './codex-hooks.js';
+import { installClaudeHooks, removeClaudeHooks } from './claude-hooks.js';
+import { installCodexHooks, removeCodexHooks } from './codex-hooks.js';
 import { handleHook, type HookTool } from './hook.js';
 import { login, logout, readAuth } from './auth.js';
 import { fetchLeaderboard } from './leaderboard.js';
@@ -39,29 +39,16 @@ program
   .version(version)
   .enablePositionalOptions();
 
-// One pass covers every desktop app, mirroring how `vibe init` wraps every
-// terminal tool. Presence-gated so we never write config for an app that was
-// never installed. During init, absent apps are skipped silently — the noise
-// is only useful when the user asked for desktop hooks by name.
-function installDesktopHooks(explicit: boolean): void {
-  const claude = claudePresent();
-  const codex = codexPresent();
-  if (!claude && !codex) {
-    if (explicit) console.log(`\n  ${RED('✗')} vibe: no desktop apps found (looked for ~/.claude and ~/.codex)\n`);
-    return;
-  }
-  if (claude) installClaudeHooks();
-  else if (explicit) console.log(`\n  ${PURPLE('◆')} claude code not found, skipped\n`);
-  if (codex) installCodexHooks();
-  else if (explicit) console.log(`\n  ${PURPLE('◆')} codex not found, skipped\n`);
-}
-
 program
   .command('init')
   .description('set up session tracking: shell wrapper + desktop hooks')
   .action(() => {
     initShellHooks();
-    installDesktopHooks(false);
+    // Unconditional, like the shell functions: hooks are inert config until the
+    // app exists, so someone who installs Claude Code or Codex months from now
+    // is already tracked without remembering to re-run init.
+    installClaudeHooks();
+    installCodexHooks();
   });
 
 program
@@ -80,7 +67,10 @@ const hooksCmd = program
 hooksCmd
   .command('install')
   .description('track Claude Code and Codex Desktop sessions')
-  .action(() => installDesktopHooks(true));
+  .action(() => {
+    installClaudeHooks();
+    installCodexHooks();
+  });
 
 hooksCmd
   .command('uninstall')
