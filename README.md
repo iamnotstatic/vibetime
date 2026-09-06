@@ -75,7 +75,7 @@ vibe hooks install
 Either way it registers session hooks in `~/.claude/settings.json` and `~/.codex/hooks.json` for both apps, including one you haven't installed yet: hooks are inert config until the app exists, so if you switch apps months from now you're already tracked without re-running anything. Hooks Vibetime didn't create are never touched. From then on, every Desktop session is recorded and shows up in `vibe status`, `vibe log`, `vibe share`, and the leaderboard, exactly like a terminal session.
 
 - **Claude Code** hot-reloads its settings: just open a new Desktop session.
-- **Codex** asks you to trust new hooks once: run `/hooks` in Codex, review the commands, then open a new session. Needs a Codex build from May 2026 or later (when hooks became generally available). Tested on macOS and Linux. Windows is untested: the hooks include a Windows command variant, reports welcome.
+- **Codex** asks you to trust new hooks once: run `/hooks` in Codex, review the commands, then open a new session. Needs a Codex build from May 2026 or later (when hooks became generally available). Tested on macOS and Linux. Windows is untested: the hooks include a Windows command variant, reports welcome. If Codex imported your Claude Code hooks, `vibe hooks install` replaces those copies with the Codex versions, which tag sessions as Codex and fit its 3-second SessionEnd limit.
 
 Duration is measured the same way as the terminal: active coding time, with idle gaps over 30 minutes excluded.
 
