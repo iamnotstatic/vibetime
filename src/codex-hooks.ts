@@ -20,6 +20,7 @@ const EVENT_MAP: Record<string, HookEvent> = {
 interface HookCommand {
   type: 'command';
   command: string;
+  commandWindows?: string;
   timeout?: number;
 }
 
@@ -48,12 +49,25 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-export function codexHookCommand(event: HookEvent, hookEventName: string): string {
+// Double quotes can't appear in Windows paths, so plain wrapping is safe.
+function winQuote(value: string): string {
+  return `"${value}"`;
+}
+
+function hookInvocation(event: HookEvent, hookEventName: string, quote: (value: string) => string): string {
   // Codex Desktop launched from the Dock may not inherit the shell PATH, so pin
   // the current Node executable and this installed CLI entry point.
   const cli = fileURLToPath(new URL('./cli.js', import.meta.url));
   const jsonResponse = hookEventName === 'Stop' ? ' --respond-json' : '';
-  return `${shellQuote(process.execPath)} ${shellQuote(cli)} __hook ${event} --tool codex${jsonResponse}`;
+  return `${quote(process.execPath)} ${quote(cli)} __hook ${event} --tool codex${jsonResponse}`;
+}
+
+export function codexHookCommand(event: HookEvent, hookEventName: string): string {
+  return hookInvocation(event, hookEventName, shellQuote);
+}
+
+export function codexHookCommandWindows(event: HookEvent, hookEventName: string): string {
+  return hookInvocation(event, hookEventName, winQuote);
 }
 
 function isCodexVibeHook(group: HookGroup): boolean {
@@ -81,6 +95,8 @@ export function mergeCodexHooks(config: CodexHooksConfig): {
       hooks: [{
         type: 'command',
         command: codexHookCommand(vibeEvent, codexEvent),
+        // Codex runs commandWindows on Windows, where POSIX quoting breaks.
+        commandWindows: codexHookCommandWindows(vibeEvent, codexEvent),
         // Codex waits at most three seconds for SessionEnd hooks.
         timeout: codexEvent === 'SessionEnd' ? 3 : 10,
       }],

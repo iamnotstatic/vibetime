@@ -48,6 +48,7 @@ test('Codex hooks merge non-destructively and are idempotent', () => {
   assert.equal(codexGroups.PostToolUse.matcher, '');
   assert.equal('matcher' in codexGroups.UserPromptSubmit, false);
   assert.match(codexGroups.Stop.hooks[0].command, /__hook activity --tool codex --respond-json$/);
+  assert.match(codexGroups.SessionStart.hooks[0].commandWindows, /^".+" ".+" __hook session-start --tool codex$/);
   assert.equal(codexGroups.Stop.hooks[0].timeout, 10);
   assert.equal(codexGroups.SessionEnd.hooks[0].timeout, 3);
 
