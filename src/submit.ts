@@ -25,8 +25,13 @@ function buildPayload(s: Session): Record<string, unknown> {
     filesTouched: s.filesTouched,
     momentum: s.momentum,
     // Absent on sessions recorded by a pre-0.8 CLI; the server derives a
-    // single end-day event from momentum for those.
-    ...(s.shipEvents?.length ? { shipEvents: s.shipEvents } : {}),
+    // single end-day event from momentum for those. The server rejects more
+    // event days than commits, and stats can shrink after events were emitted
+    // (dedupe, rescore), so send at most `commits` days, newest first — the
+    // ones still backed by the current stats.
+    ...(s.shipEvents?.length && s.commits > 0
+      ? { shipEvents: s.shipEvents.slice(-Math.min(s.commits, s.shipEvents.length)) }
+      : {}),
   };
 }
 

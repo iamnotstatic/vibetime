@@ -52,6 +52,9 @@ function parseSession(raw: unknown): IncomingSession | string {
     for (const day of s.shipEvents) {
       if (typeof day !== 'string' || !DAY_RE.test(day) || isNaN(Date.parse(day))) return 'invalid shipEvents';
     }
+    // Every event needs at least one new commit in its delta, so a session can
+    // never honestly claim more event days than it has commits.
+    if (s.shipEvents.length > (s.commits as number)) return 'shipEvents exceed commits';
   }
   return s as unknown as IncomingSession;
 }
