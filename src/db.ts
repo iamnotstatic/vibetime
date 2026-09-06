@@ -38,6 +38,11 @@ export interface Session {
   // if it then goes idle, the reaper re-finalizes it as the clean end it already
   // had instead of downgrading it to `interrupted`.
   hadCleanEnd?: boolean;
+  // UTC days this session shipped on (one leaderboard point each), and the
+  // stats snapshot at the last emitted event. Maintained by trackShipEvents in
+  // score.ts; a multi-day session earns each day's event with that day's work.
+  shipEvents?: string[];
+  eventBaseline?: { commits: number; linesAdded: number; linesRemoved: number; filesTouched: number };
 }
 
 interface DbSchema {

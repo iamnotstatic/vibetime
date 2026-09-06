@@ -68,39 +68,45 @@ async function buildData(env: Env, window: Window): Promise<LeaderboardData> {
     : window === 'month' ? startOfCalendarMonth().getTime()
     : window === 'week' ? startOfCalendarWeek().getTime()
     : Date.now() - WINDOWS[window];
-  const sinceIso = new Date(sinceMs).toISOString();
+  // Ship events are keyed by UTC day; the calendar windows start at UTC
+  // midnight, so a plain day-string comparison matches them exactly.
+  const sinceDay = new Date(sinceMs).toISOString().slice(0, 10);
 
   const totalsRes = await env.DB.prepare(
     `SELECT COUNT(DISTINCT user_github_id) AS dev_count, COUNT(*) AS session_count
-     FROM sessions
-     WHERE momentum = 'shipped' AND ended_at > ?`,
-  ).bind(sinceIso).first<{ dev_count: number; session_count: number }>();
+     FROM ship_events
+     WHERE day >= ?`,
+  ).bind(sinceDay).first<{ dev_count: number; session_count: number }>();
   const devCount = totalsRes?.dev_count ?? 0;
   const sessionCount = totalsRes?.session_count ?? 0;
 
+  // Rank by ship events; timestamps for "last shipped" and the join-order
+  // tiebreak still come from the underlying sessions.
   const topRes = await env.DB.prepare(
     `SELECT u.github_id, u.handle, u.avatar_url,
             COUNT(*) AS shipped_count,
             MAX(s.ended_at) AS last_shipped_at,
             MIN(s.started_at) AS first_at
-     FROM sessions s JOIN users u ON s.user_github_id = u.github_id
-     WHERE s.momentum = 'shipped' AND s.ended_at > ?
+     FROM ship_events e
+     JOIN sessions s ON s.id = e.session_id
+     JOIN users u ON e.user_github_id = u.github_id
+     WHERE e.day >= ?
      GROUP BY u.github_id
      ORDER BY shipped_count DESC, first_at ASC
      LIMIT 100`,
-  ).bind(sinceIso).all<LeaderboardRow>();
+  ).bind(sinceDay).all<LeaderboardRow>();
 
   const rows = topRes.results ?? [];
   if (rows.length === 0) return { entries: [], devCount, sessionCount };
 
-  const heatmapSince = new Date(Date.now() - HEATMAP_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const heatmapSinceDay = new Date(Date.now() - HEATMAP_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const placeholders = rows.map(() => '?').join(',');
   const dailyRes = await env.DB.prepare(
-    `SELECT user_github_id, date(ended_at) AS day, COUNT(*) AS n
-     FROM sessions
-     WHERE momentum = 'shipped' AND ended_at > ? AND user_github_id IN (${placeholders})
+    `SELECT user_github_id, day, COUNT(*) AS n
+     FROM ship_events
+     WHERE day >= ? AND user_github_id IN (${placeholders})
      GROUP BY user_github_id, day`,
-  ).bind(heatmapSince, ...rows.map((r) => r.github_id)).all<DailyCount>();
+  ).bind(heatmapSinceDay, ...rows.map((r) => r.github_id)).all<DailyCount>();
 
   const dailyByUser = new Map<number, Map<string, number>>();
   for (const d of dailyRes.results ?? []) {

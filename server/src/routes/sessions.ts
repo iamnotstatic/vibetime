@@ -9,8 +9,13 @@ const VALID_TIERS = new Set(['shipped', 'progressed', 'tinkering', 'exploring', 
 const VALID_TOOLS_RE = /^[a-z][a-z0-9_-]{0,31}$/i;
 const MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 const MIN_DURATION_S = 60;
+// Anti-gaming: at most this many ship events per user per UTC day. Enforced by
+// silently dropping excess event rows — the session itself still stores, so
+// clients (including pre-0.8 ones that used to see a 429 here) never retry.
 const DAILY_SHIPPED_CAP = 10;
-const SHIPPED_WINDOW_MS = 24 * 60 * 60 * 1000;
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_SHIP_EVENTS = 62;
+const DAY_SLACK_MS = 24 * 60 * 60 * 1000;
 
 interface IncomingSession {
   id: string;
@@ -24,6 +29,7 @@ interface IncomingSession {
   linesRemoved: number;
   filesTouched: number;
   momentum?: string;
+  shipEvents?: string[];
 }
 
 function parseSession(raw: unknown): IncomingSession | string {
@@ -41,6 +47,15 @@ function parseSession(raw: unknown): IncomingSession | string {
   if (typeof s.filesTouched !== 'number' || s.filesTouched < 0) return 'invalid filesTouched';
   // momentum is now optional — server is authoritative — but validate the shape if old clients still send it
   if (s.momentum !== undefined && (typeof s.momentum !== 'string' || !VALID_TIERS.has(s.momentum))) return 'invalid momentum';
+  if (s.shipEvents !== undefined) {
+    if (!Array.isArray(s.shipEvents) || s.shipEvents.length > MAX_SHIP_EVENTS) return 'invalid shipEvents';
+    for (const day of s.shipEvents) {
+      if (typeof day !== 'string' || !DAY_RE.test(day) || isNaN(Date.parse(day))) return 'invalid shipEvents';
+    }
+    // Every event needs at least one new commit in its delta, so a session can
+    // never honestly claim more event days than it has commits.
+    if (s.shipEvents.length > (s.commits as number)) return 'shipEvents exceed commits';
+  }
   return s as unknown as IncomingSession;
 }
 
@@ -56,6 +71,16 @@ export async function submitSession(request: Request, env: Env): Promise<Respons
   const startedAtMs = Date.parse(parsed.startedAt);
   if (Date.now() - startedAtMs > MAX_AGE_MS) return error(400, 'session too old');
   if (parsed.durationSeconds < MIN_DURATION_S) return error(400, 'session too short');
+
+  // Event days must fall within the session's lifespan (a day of slack each
+  // side for clock skew) — no forging history outside the session.
+  if (parsed.shipEvents) {
+    const endedAtMs = Date.parse(parsed.endedAt);
+    for (const day of parsed.shipEvents) {
+      const dayMs = Date.parse(day);
+      if (dayMs < startedAtMs - DAY_SLACK_MS * 2 || dayMs > endedAtMs + DAY_SLACK_MS) return error(400, 'shipEvents outside session');
+    }
+  }
 
   // confirm the user row still exists (defends against FK insert failure if the row was deleted)
   // v1.1 follow-up: verify commit history against the user's public GitHub events
@@ -73,14 +98,6 @@ export async function submitSession(request: Request, env: Env): Promise<Respons
     linesRemoved: parsed.linesRemoved,
     filesTouched: parsed.filesTouched,
   });
-
-  if (momentum === 'shipped') {
-    const since = new Date(Date.now() - SHIPPED_WINDOW_MS).toISOString();
-    const existing = await env.DB.prepare(
-      `SELECT COUNT(*) AS n FROM sessions WHERE user_github_id = ? AND momentum = 'shipped' AND started_at >= ? AND id != ?`,
-    ).bind(auth.sub, since, parsed.id).first<{ n: number }>();
-    if ((existing?.n ?? 0) >= DAILY_SHIPPED_CAP) return error(429, 'daily shipped cap reached');
-  }
 
   const submittedAt = new Date().toISOString();
   await env.DB.prepare(
@@ -105,6 +122,32 @@ export async function submitSession(request: Request, env: Env): Promise<Respons
     parsed.durationSeconds, parsed.commits, parsed.linesAdded, parsed.linesRemoved,
     parsed.filesTouched, momentum, submittedAt,
   ).run();
+
+  // The upsert's WHERE guard silently refuses a session id owned by someone
+  // else; surface that instead of pretending success, and never write events
+  // for a session this user doesn't own.
+  const owner = await env.DB.prepare(
+    `SELECT user_github_id AS uid FROM sessions WHERE id = ?`,
+  ).bind(parsed.id).first<{ uid: number }>();
+  if (owner && owner.uid !== auth.sub) return error(409, 'session id belongs to another user');
+
+  // One row per (session, day). Pre-0.8 CLIs send no shipEvents; derive the
+  // single end-day event from momentum, which is exactly the old counting.
+  // The submitted set replaces the session's rows, so corrections (grace
+  // rescore, changed end day) reconcile in both directions.
+  const eventDays = [...new Set(parsed.shipEvents ?? (momentum === 'shipped' ? [parsed.endedAt.slice(0, 10)] : []))].sort();
+  await env.DB.prepare(
+    `DELETE FROM ship_events WHERE session_id = ?${eventDays.length ? ` AND day NOT IN (${eventDays.map(() => '?').join(',')})` : ''}`,
+  ).bind(parsed.id, ...eventDays).run();
+  for (const day of eventDays) {
+    const capped = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM ship_events WHERE user_github_id = ? AND day = ? AND session_id != ?`,
+    ).bind(auth.sub, day, parsed.id).first<{ n: number }>();
+    if ((capped?.n ?? 0) >= DAILY_SHIPPED_CAP) continue;
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO ship_events (session_id, user_github_id, day) VALUES (?, ?, ?)`,
+    ).bind(parsed.id, auth.sub, day).run();
+  }
 
   await env.DB.prepare(`UPDATE users SET last_seen_at = ? WHERE github_id = ?`).bind(submittedAt, auth.sub).run();
 

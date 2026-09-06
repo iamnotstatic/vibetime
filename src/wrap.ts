@@ -4,7 +4,7 @@ import { addSession, updateSession, deleteSession, INACTIVITY_TIMEOUT_MS, type S
 import { baselineRepos, describeRepos, getReposDiffStats, getReposFingerprint } from './git.js';
 import { refreshAndReap } from './rescore.js';
 import { readConfig } from './config.js';
-import { scoreSession } from './score.js';
+import { scoreSession, trackShipEvents, type ShipEventState } from './score.js';
 import { renderEndcard } from './render.js';
 import { flushPendingSubmissions, submitInProgress } from './submit.js';
 import { getRecommendedVersion } from './api.js';
@@ -55,7 +55,9 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
 
   await refreshAndReap();
 
-  function snapshot(exitCode: number): Pick<Session, 'endedAt' | 'durationSeconds' | 'commits' | 'linesAdded' | 'linesRemoved' | 'filesTouched' | 'momentum' | 'exitCode' | 'lastActivityAt'> {
+  let eventState: ShipEventState = {};
+
+  function snapshot(exitCode: number): Pick<Session, 'endedAt' | 'durationSeconds' | 'commits' | 'linesAdded' | 'linesRemoved' | 'filesTouched' | 'momentum' | 'exitCode' | 'lastActivityAt' | 'shipEvents' | 'eventBaseline'> {
     const endedAt = new Date().toISOString();
     const endMs = new Date(endedAt).getTime();
     const startMs = new Date(startedAt).getTime();
@@ -67,7 +69,9 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
       diffStats = getReposDiffStats(repos);
     }
     const momentum = scoreSession({ ...diffStats, exitCode }, config);
-    return { endedAt, durationSeconds, ...diffStats, momentum, exitCode, lastActivityAt };
+    const tracked = trackShipEvents(eventState, diffStats, config, endMs);
+    if (tracked) eventState = tracked;
+    return { endedAt, durationSeconds, ...diffStats, momentum, exitCode, lastActivityAt, ...eventState };
   }
 
   // write session immediately so it survives crashes
