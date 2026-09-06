@@ -1,6 +1,6 @@
 const enc = new TextEncoder();
 
-function b64url(bytes: ArrayBuffer | Uint8Array): string {
+export function b64url(bytes: ArrayBuffer | Uint8Array): string {
   const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   let s = '';
   for (const b of arr) s += String.fromCharCode(b);

@@ -8,10 +8,11 @@ import { scoreSession } from './score.js';
 import { renderEndcard } from './render.js';
 import { flushPendingSubmissions, submitInProgress } from './submit.js';
 import { getRecommendedVersion } from './api.js';
+import { TUNABLES, refreshTunables } from './remote-config.js';
 import { PURPLE } from './colors.js';
 
-const POLL_INTERVAL_MS = 30_000;
-const IN_PROGRESS_SUBMIT_INTERVAL_MS = 5 * 60_000;
+const POLL_INTERVAL_MS = TUNABLES.pollIntervalMs;
+const IN_PROGRESS_SUBMIT_INTERVAL_MS = TUNABLES.inProgressSubmitIntervalMs;
 
 function reportSpawnError(tool: string, err: NodeJS.ErrnoException): void {
   if (err.code === 'ENOENT') {
@@ -47,6 +48,10 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
   let lastActivityAt = startedAt;
   let totalGapMs = 0;
   let idleSince = 0;
+
+  // Refresh the server tunables in the background; whatever it fetches applies
+  // to the next session, never this one mid-flight.
+  refreshTunables().catch(() => {});
 
   await refreshAndReap();
 

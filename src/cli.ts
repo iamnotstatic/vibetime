@@ -176,8 +176,8 @@ program
 program
   .command('logout')
   .description('sign out of the leaderboard')
-  .action(() => {
-    logout();
+  .action(async () => {
+    await logout();
   });
 
 program

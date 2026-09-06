@@ -1,8 +1,24 @@
 import type { Env } from '../env.js';
 import { error, json } from '../http.js';
-import { signJwt } from '../jwt.js';
+import { signJwt, b64url } from '../jwt.js';
 
-const JWT_TTL_SECONDS = 365 * 24 * 60 * 60;
+// Access tokens are short-lived; the CLI renews them via /auth/refresh with a
+// long-lived refresh token, which lets us rotate or revoke without forcing a
+// re-login. Pre-v0.7 CLIs hold 365-day JWTs; those keep verifying until they
+// expire, so this change breaks nobody.
+const JWT_TTL_SECONDS = 7 * 24 * 60 * 60;
+const REFRESH_TTL_MS = 400 * 24 * 60 * 60 * 1000;
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function newRefreshToken(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return b64url(bytes);
+}
 
 interface GithubUser {
   id: number;
@@ -47,5 +63,58 @@ export async function exchangeAuth(request: Request, env: Env): Promise<Response
 
   const iat = Math.floor(Date.now() / 1000);
   const jwt = await signJwt({ sub: gh.id, handle: gh.login, iat, exp: iat + JWT_TTL_SECONDS }, env.JWT_SECRET);
-  return json({ jwt, handle: gh.login, avatarUrl });
+
+  const refreshToken = newRefreshToken();
+  await env.DB.prepare(
+    `INSERT INTO refresh_tokens (token_hash, user_github_id, created_at) VALUES (?, ?, ?)`,
+  ).bind(await sha256Hex(refreshToken), gh.id, now).run();
+
+  return json({ jwt, refreshToken, handle: gh.login, avatarUrl });
+}
+
+export async function refreshAuth(request: Request, env: Env): Promise<Response> {
+  let body: { refresh_token?: unknown };
+  try {
+    body = (await request.json()) as { refresh_token?: unknown };
+  } catch {
+    return error(400, 'invalid json');
+  }
+  const token = body.refresh_token;
+  if (typeof token !== 'string' || token.length < 32) return error(400, 'refresh_token required');
+
+  const row = await env.DB.prepare(
+    `SELECT rt.user_github_id, rt.created_at, rt.revoked_at, u.handle, u.avatar_url
+     FROM refresh_tokens rt JOIN users u ON u.github_id = rt.user_github_id
+     WHERE rt.token_hash = ?`,
+  ).bind(await sha256Hex(token)).first<{ user_github_id: number; created_at: string; revoked_at: string | null; handle: string; avatar_url: string | null }>();
+
+  if (!row || row.revoked_at !== null) return error(401, 'refresh token invalid');
+  if (Date.now() - Date.parse(row.created_at) > REFRESH_TTL_MS) return error(401, 'refresh token expired');
+
+  await env.DB.prepare(
+    `UPDATE refresh_tokens SET last_used_at = ? WHERE token_hash = ?`,
+  ).bind(new Date().toISOString(), await sha256Hex(token)).run();
+
+  const iat = Math.floor(Date.now() / 1000);
+  const jwt = await signJwt({ sub: row.user_github_id, handle: row.handle, iat, exp: iat + JWT_TTL_SECONDS }, env.JWT_SECRET);
+  return json({ jwt, handle: row.handle, avatarUrl: row.avatar_url });
+}
+
+export async function revokeAuth(request: Request, env: Env): Promise<Response> {
+  let body: { refresh_token?: unknown };
+  try {
+    body = (await request.json()) as { refresh_token?: unknown };
+  } catch {
+    return error(400, 'invalid json');
+  }
+  const token = body.refresh_token;
+  if (typeof token !== 'string' || token.length < 32) return error(400, 'refresh_token required');
+
+  // Idempotent: revoking an unknown or already-revoked token still returns ok,
+  // so logout never fails client-side.
+  await env.DB.prepare(
+    `UPDATE refresh_tokens SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL`,
+  ).bind(new Date().toISOString(), await sha256Hex(token)).run();
+
+  return json({ ok: true });
 }
