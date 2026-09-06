@@ -68,14 +68,18 @@ export async function submitSession(request: Request, env: Env): Promise<Respons
   const parsed = parseSession(body);
   if (typeof parsed === 'string') return error(400, parsed);
 
+  // Staleness keys on when the session ENDED: long-lived sessions are
+  // first-class now that ship events count per day, so a session started
+  // weeks ago but active yesterday is current, while one that ended two
+  // weeks ago is a zombie resubmission whatever its start date.
   const startedAtMs = Date.parse(parsed.startedAt);
-  if (Date.now() - startedAtMs > MAX_AGE_MS) return error(400, 'session too old');
+  const endedAtMs = Date.parse(parsed.endedAt);
+  if (Date.now() - endedAtMs > MAX_AGE_MS) return error(400, 'session too old');
   if (parsed.durationSeconds < MIN_DURATION_S) return error(400, 'session too short');
 
   // Event days must fall within the session's lifespan (a day of slack each
   // side for clock skew) — no forging history outside the session.
   if (parsed.shipEvents) {
-    const endedAtMs = Date.parse(parsed.endedAt);
     for (const day of parsed.shipEvents) {
       const dayMs = Date.parse(day);
       if (dayMs < startedAtMs - DAY_SLACK_MS * 2 || dayMs > endedAtMs + DAY_SLACK_MS) return error(400, 'shipEvents outside session');
