@@ -167,7 +167,7 @@ export function renderLeaderboard(entries: LeaderboardEntry[], webUrl: string, c
   return ['', header, '', ...rows, '', footer, ''].join('\n');
 }
 
-export function renderLog(sessions: Session[]): string {
+export function renderLog(sessions: Session[], all: Session[] = sessions): string {
   if (sessions.length === 0) {
     return '\n  no sessions recorded yet.\n';
   }
@@ -181,5 +181,11 @@ export function renderLog(sessions: Session[]): string {
     return `  ${DIM(dateStr)}  ${project}  ${duration}   ${tier}`;
   });
 
-  return ['\n', ...lines, ''].join('\n');
+  // The list shows recent sessions; the footer totals everything ever
+  // recorded, and says so — the two would otherwise read as one sum.
+  const totalSeconds = all.reduce((sum, s) => sum + s.durationSeconds, 0);
+  const shipped = all.filter((s) => s.momentum === 'shipped').length;
+  const summary = `  all time: ${formatDuration(totalSeconds)} across ${all.length} session${all.length === 1 ? '' : 's'}  ·  ${shipped} shipped`;
+
+  return ['\n', ...lines, '', `  ${DIM('─'.repeat(44))}`, summary, ''].join('\n');
 }
