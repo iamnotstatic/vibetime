@@ -30,10 +30,28 @@ export function appendHook(tool: string, rcFile: string): boolean {
 
   if (existsSync(rcFile)) {
     const content = readFileSync(rcFile, 'utf-8');
-    if (content.includes(`vibe __wrap ${lower}`)) return false;
+    // Trailing space so `claude` doesn't match a `claudex` hook.
+    if (content.includes(`vibe __wrap ${lower} `)) return false;
   }
 
   appendFileSync(rcFile, `\n${hookLines(lower)}\n`);
+  return true;
+}
+
+export function removeHook(tool: string, rcFile: string): boolean {
+  const lower = tool.toLowerCase();
+  if (!existsSync(rcFile)) return false;
+
+  const content = readFileSync(rcFile, 'utf-8');
+  // Only hook definitions for this tool — a line that merely mentions the
+  // wrap command (a comment, an alias) is the user's, not ours.
+  const HOOK_RE = new RegExp(`^[a-zA-Z0-9_-]+\\(\\) \\{ vibe __wrap ${lower} `);
+  const filtered = content.split('\n').filter((line) => !HOOK_RE.test(line));
+
+  const cleaned = filtered.join('\n');
+  if (cleaned === content) return false;
+
+  writeFileSync(rcFile, cleaned);
   return true;
 }
 
