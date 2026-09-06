@@ -37,13 +37,26 @@ const SCALE_WINDOW_LABEL: Record<Window, string> = {
   all: 'all-time',
 };
 
-export function renderLeaderboard(data: LeaderboardData, window: Window, updatedAt: Date): string {
+// The calendar week can straddle a month boundary (a Monday start in the old
+// month), which makes "this week" occasionally show more developers than "this
+// month". Spelling out the window's dates keeps that from reading as a bug.
+function windowRange(start: Date, now: Date): string {
+  const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  const from = `${months[start.getUTCMonth()]} ${start.getUTCDate()}`;
+  const to = start.getUTCMonth() === now.getUTCMonth()
+    ? `${now.getUTCDate()}`
+    : `${months[now.getUTCMonth()]} ${now.getUTCDate()}`;
+  return `${from} – ${to}`;
+}
+
+export function renderLeaderboard(data: LeaderboardData, window: Window, updatedAt: Date, windowStart?: Date | null): string {
   const { entries, devCount, sessionCount } = data;
   const devNoun = devCount === 1 ? 'developer' : 'developers';
   const sessionNoun = sessionCount === 1 ? 'shipped session' : 'shipped sessions';
+  const rangeLabel = windowStart ? ` <span class="range">· ${windowRange(windowStart, updatedAt)}</span>` : '';
   const scaleLine = entries.length === 0
     ? ''
-    : `<p class="scale"><strong>${devCount}</strong> ${devNoun} · <strong>${sessionCount}</strong> ${sessionNoun} ${escapeHtml(SCALE_WINDOW_LABEL[window])}</p>`;
+    : `<p class="scale"><strong>${devCount}</strong> ${devNoun} · <strong>${sessionCount}</strong> ${sessionNoun} ${escapeHtml(SCALE_WINDOW_LABEL[window])}${rangeLabel}</p>`;
   const tableRows = entries.length === 0
     ? `<tr><td colspan="5" class="empty">
         <div class="empty-msg">nothing shipped. yet.</div>
@@ -82,6 +95,7 @@ vibe login</pre>
   .tagline { color: #999; font-size: 13px; margin: 6px 0 0; }
   .scale { color: #888; font-size: 12px; margin: 6px 0 0; }
   .scale strong { color: #c4b5fd; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .scale .range { color: #555; }
   .sub { color: #666; font-size: 12px; margin: 4px 0 0; }
   .tabs { display: flex; gap: 4px; margin: 20px 0 16px; border-bottom: 1px solid #1a1a1a; }
   .tab { color: #666; text-decoration: none; padding: 8px 12px; font-size: 13px; border-bottom: 2px solid transparent; margin-bottom: -1px; }

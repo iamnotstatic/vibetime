@@ -147,7 +147,10 @@ export async function leaderboardJson(request: Request, env: Env): Promise<Respo
 export async function leaderboardHtml(request: Request, env: Env): Promise<Response> {
   const window = parseWindow(new URL(request.url).searchParams.get('window'));
   const data = await buildData(env, window);
-  return html(renderLeaderboard(data, window, new Date()), {
+  const windowStart = window === 'all' ? null
+    : window === 'month' ? startOfCalendarMonth()
+    : startOfCalendarWeek();
+  return html(renderLeaderboard(data, window, new Date(), windowStart), {
     headers: {
       'cache-control': 'public, max-age=60',
       'content-security-policy': "default-src 'self'; img-src https://avatars.githubusercontent.com; style-src 'unsafe-inline'; base-uri 'self'; form-action 'self'",
