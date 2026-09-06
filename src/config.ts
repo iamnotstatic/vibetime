@@ -62,7 +62,7 @@ export function addTool(name: string): void {
     return;
   }
 
-  const { rcFile } = detectShell();
+  const { shell, rcFile } = detectShell();
 
   if (!existsSync(rcFile)) {
     console.log(`\n  ${RED('✗')} run vibe init first to set up Vibetime.\n`);
@@ -71,7 +71,7 @@ export function addTool(name: string): void {
 
   // A default tool is only "already added by vibe init" while its hooks are
   // actually in the rc file — after a remove-tool it can be re-added.
-  const added = appendHook(name, rcFile);
+  const added = appendHook(name, rcFile, shell);
   if (added) {
     console.log(`\n  ${PURPLE('◆')} ${name} added. restart your terminal to start tracking.\n`);
   } else if (DEFAULT_TOOLS.includes(name.toLowerCase())) {

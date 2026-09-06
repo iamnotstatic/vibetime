@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { appendHook, removeHook } from '../dist/init.js';
+import { appendHook, detectShell, removeHook } from '../dist/init.js';
 
 function scratchRc(t, content = '# my rc\nexport PATH=$PATH\n') {
   const dir = mkdtempSync(join(tmpdir(), 'vibe-rc-'));
@@ -72,4 +72,30 @@ test('a user line that merely mentions the wrap command is not ours to delete', 
   const rcFile = scratchRc(t, '# reminder: opencode() { vibe __wrap opencode "$@"; } is what vibe adds\nalias oc=opencode\n');
   assert.equal(removeHook('opencode', rcFile), false);
   assert.ok(readFileSync(rcFile, 'utf-8').includes('alias oc=opencode'));
+});
+
+test('fish hooks use fish syntax and round-trip cleanly', (t) => {
+  const rcFile = scratchRc(t);
+  const before = readFileSync(rcFile, 'utf-8');
+
+  assert.equal(appendHook('opencode', rcFile, 'fish'), true);
+  const withHooks = readFileSync(rcFile, 'utf-8');
+  assert.match(withHooks, /function opencode; vibe __wrap opencode \$argv; end/);
+  assert.ok(!withHooks.includes('"$@"'));
+
+  assert.equal(removeHook('opencode', rcFile), true);
+  assert.equal(readFileSync(rcFile, 'utf-8').trim(), before.trim());
+});
+
+test('fish is detected with its standard config path', (t) => {
+  const previousShell = process.env.SHELL;
+  t.after(() => {
+    if (previousShell === undefined) delete process.env.SHELL;
+    else process.env.SHELL = previousShell;
+  });
+  process.env.SHELL = '/opt/homebrew/bin/fish';
+
+  const detected = detectShell();
+  assert.equal(detected.shell, 'fish');
+  assert.ok(detected.rcFile.endsWith('/.config/fish/config.fish'));
 });
