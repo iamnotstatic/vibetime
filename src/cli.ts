@@ -39,38 +39,48 @@ program
   .version(version)
   .enablePositionalOptions();
 
+// One pass covers every desktop app, mirroring how `vibe init` wraps every
+// terminal tool. Presence-gated so we never write config for an app that was
+// never installed. During init, absent apps are skipped silently — the noise
+// is only useful when the user asked for desktop hooks by name.
+function installDesktopHooks(explicit: boolean): void {
+  const claude = claudePresent();
+  const codex = codexPresent();
+  if (!claude && !codex) {
+    if (explicit) console.log(`\n  ${RED('✗')} vibe: no desktop apps found (looked for ~/.claude and ~/.codex)\n`);
+    return;
+  }
+  if (claude) installClaudeHooks();
+  else if (explicit) console.log(`\n  ${PURPLE('◆')} claude code not found, skipped\n`);
+  if (codex) installCodexHooks();
+  else if (explicit) console.log(`\n  ${PURPLE('◆')} codex not found, skipped\n`);
+}
+
 program
   .command('init')
-  .description('set up shell hooks for session tracking')
-  .action(initShellHooks);
+  .description('set up session tracking: shell wrapper + desktop hooks')
+  .action(() => {
+    initShellHooks();
+    installDesktopHooks(false);
+  });
 
 program
   .command('uninstall')
-  .description('remove shell hooks')
-  .action(removeShellHooks);
+  .description('remove shell hooks and desktop hooks')
+  .action(() => {
+    removeShellHooks();
+    removeClaudeHooks();
+    removeCodexHooks();
+  });
 
 const hooksCmd = program
   .command('hooks')
   .description('track desktop coding sessions via lifecycle hooks');
 
-// One command covers every desktop app, mirroring how `vibe init` wraps every
-// terminal tool. Presence-gated so we never write config for an app that was
-// never installed.
 hooksCmd
   .command('install')
   .description('track Claude Code and Codex Desktop sessions')
-  .action(() => {
-    const claude = claudePresent();
-    const codex = codexPresent();
-    if (!claude && !codex) {
-      console.log(`\n  ${RED('✗')} vibe: no desktop apps found (looked for ~/.claude and ~/.codex)\n`);
-      return;
-    }
-    if (claude) installClaudeHooks();
-    else console.log(`\n  ${PURPLE('◆')} claude code not found, skipped\n`);
-    if (codex) installCodexHooks();
-    else console.log(`\n  ${PURPLE('◆')} codex not found, skipped\n`);
-  });
+  .action(() => installDesktopHooks(true));
 
 hooksCmd
   .command('uninstall')

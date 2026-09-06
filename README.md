@@ -25,7 +25,7 @@ vibe init
 source ~/.zshrc   # or ~/.bashrc — or restart your terminal
 ```
 
-Adds shell hooks that wrap `claude`, `codex`, and `gemini`. The tools work exactly the same — Vibetime tracks your git state while you code and prints the endcard when you're done.
+One command sets up everything: shell hooks that wrap `claude`, `codex`, and `gemini` in the terminal, plus desktop session hooks for the Claude Code and Codex apps you have installed (see [Desktop apps](#desktop-apps)). The tools work exactly the same — Vibetime tracks your git state while you code and prints the endcard when you're done.
 
 **Fish shell** — `vibe init` writes bash/zsh syntax. Fish users should add hooks manually to `~/.config/fish/config.fish`:
 
@@ -66,13 +66,13 @@ Sessions are scored by what happened in git:
 
 ## Desktop apps
 
-`vibe init` wraps the **terminal** commands. The Claude Code and Codex **Desktop** apps never run those commands, so the shell wrapper can't see them. Track Desktop sessions with hooks instead:
+The Claude Code and Codex **Desktop** apps never run the wrapped terminal commands, so the shell wrapper can't see them. Vibetime tracks them through session hooks instead — `vibe init` sets these up automatically. If you ran `vibe init` before desktop support existed, either re-run it or use:
 
 ```
 vibe hooks install
 ```
 
-One command covers both apps. It registers session hooks in `~/.claude/settings.json` and `~/.codex/hooks.json` for whichever apps are installed, skips the ones that aren't, and never touches hooks it didn't create. From then on, every Desktop session is recorded and shows up in `vibe status`, `vibe log`, `vibe share`, and the leaderboard, exactly like a terminal session.
+Either way it registers session hooks in `~/.claude/settings.json` and `~/.codex/hooks.json` for whichever apps are installed, skips the ones that aren't, and never touches hooks it didn't create. From then on, every Desktop session is recorded and shows up in `vibe status`, `vibe log`, `vibe share`, and the leaderboard, exactly like a terminal session.
 
 - **Claude Code** hot-reloads its settings: just open a new Desktop session.
 - **Codex** asks you to trust new hooks once: run `/hooks` in Codex, review the commands, then open a new session. Needs a Codex build from May 2026 or later (when hooks became generally available). Tested on macOS and Linux; Windows isn't supported yet.
@@ -147,7 +147,7 @@ vibe config set handle <name> set your @handle (shown on share cards)
 vibe config add-tool <name>  track a new AI CLI tool
 vibe hooks install           track Claude Code + Codex Desktop sessions
 vibe hooks uninstall         stop tracking Desktop sessions
-vibe uninstall               remove shell hooks
+vibe uninstall               remove shell hooks and desktop hooks
 ```
 
 Sessions belong to the day they started — a session that runs past midnight appears under the previous day.
@@ -156,11 +156,10 @@ Sessions belong to the day they started — a session that runs past midnight ap
 
 ```
 vibe uninstall
-vibe hooks uninstall   # if you tracked Desktop sessions
 npm uninstall -g vibetime-cli
 ```
 
-`vibe uninstall` removes all shell hooks from your rc file. `vibe hooks uninstall` removes Vibetime's hooks from `~/.claude/settings.json` and `~/.codex/hooks.json` while preserving other hooks. Your session data in `~/.vibe/` is preserved — delete it manually if you want a clean removal.
+`vibe uninstall` removes everything `vibe init` set up: the shell hooks in your rc file and Vibetime's desktop hooks in `~/.claude/settings.json` and `~/.codex/hooks.json`, preserving hooks it didn't create. To stop desktop tracking alone, run `vibe hooks uninstall`. Your session data in `~/.vibe/` is preserved — delete it manually if you want a clean removal.
 
 ## Privacy
 
