@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { PURPLE } from './colors.js';
 
 const HOOK_MARKER = '# vibetime hooks';
-export const DEFAULT_TOOLS = ['claude', 'codex', 'gemini'];
+export const DEFAULT_TOOLS = ['claude', 'codex', 'gemini', 'aster'];
 
 function hookLines(tool: string): string {
   const lower = tool.toLowerCase();
