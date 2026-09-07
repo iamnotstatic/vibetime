@@ -103,6 +103,12 @@ export async function submitSession(request: Request, env: Env): Promise<Respons
     filesTouched: parsed.filesTouched,
   });
 
+  // Prior state drives both the ownership check and the legacy event gate.
+  const prior = await env.DB.prepare(
+    `SELECT user_github_id AS uid, commits AS priorCommits FROM sessions WHERE id = ?`,
+  ).bind(parsed.id).first<{ uid: number; priorCommits: number }>();
+  if (prior && prior.uid !== auth.sub) return error(409, 'session id belongs to another user');
+
   const submittedAt = new Date().toISOString();
   await env.DB.prepare(
     `INSERT INTO sessions (id, user_github_id, tool, project_hash, started_at, ended_at,
@@ -127,35 +133,35 @@ export async function submitSession(request: Request, env: Env): Promise<Respons
     parsed.filesTouched, momentum, submittedAt,
   ).run();
 
-  // The upsert's WHERE guard silently refuses a session id owned by someone
-  // else; surface that instead of pretending success, and never write events
-  // for a session this user doesn't own.
-  const owner = await env.DB.prepare(
-    `SELECT user_github_id AS uid FROM sessions WHERE id = ?`,
-  ).bind(parsed.id).first<{ uid: number }>();
-  if (owner && owner.uid !== auth.sub) return error(409, 'session id belongs to another user');
-
-  // One row per (session, day). Pre-0.8 CLIs send no shipEvents; derive the
-  // single end-day event from momentum, which is exactly the old counting.
-  // The submitted set replaces the session's rows FOR TODAY AND LATER ONLY:
-  // past days are announced history and immutable. Without this, a legacy
-  // session reviving after midnight resubmits with a new end day and its
-  // derived event is yanked out of the closed week (this deleted events from
-  // an already-announced week on 2026-09-07). A legacy long-runner therefore
-  // accrues one event per end day it crosses, which approximates the per-day
-  // model within the same caps.
+  // One row per (session, day); past days are announced history and immutable.
+  //
+  // Clients that send shipEvents delta-gate each day themselves, and their
+  // submitted set replaces the session's rows for today and later only.
+  //
+  // Pre-0.8 clients assert nothing about events, so their submissions never
+  // delete rows; a single end-day event is derived from momentum, gated on the
+  // commit count having GROWN since the last stored submission. Without that
+  // gate, any long-lived session that ever shipped would mint a free event
+  // every day it merely revived (42 phantom events in the first hour of
+  // 2026-09-07).
   const todayDay = new Date().toISOString().slice(0, 10);
-  const eventDays = [...new Set(parsed.shipEvents ?? (momentum === 'shipped' ? [parsed.endedAt.slice(0, 10)] : []))].sort();
-  await env.DB.prepare(
-    `DELETE FROM ship_events WHERE session_id = ? AND day >= ?${eventDays.length ? ` AND day NOT IN (${eventDays.map(() => '?').join(',')})` : ''}`,
-  ).bind(parsed.id, todayDay, ...eventDays).run();
-  for (const day of eventDays) {
-    const capped = await env.DB.prepare(
-      `SELECT COUNT(*) AS n FROM ship_events WHERE user_github_id = ? AND day = ? AND session_id != ?`,
-    ).bind(auth.sub, day, parsed.id).first<{ n: number }>();
-    if ((capped?.n ?? 0) >= DAILY_SHIPPED_CAP) continue;
+  let eventDays: string[];
+  if (parsed.shipEvents) {
+    eventDays = [...new Set(parsed.shipEvents)].sort();
     await env.DB.prepare(
-      `INSERT OR IGNORE INTO ship_events (session_id, user_github_id, day) VALUES (?, ?, ?)`,
+      `DELETE FROM ship_events WHERE session_id = ? AND day >= ?${eventDays.length ? ` AND day NOT IN (${eventDays.map(() => '?').join(',')})` : ''}`,
+    ).bind(parsed.id, todayDay, ...eventDays).run();
+  } else {
+    const commitsGrew = !prior || parsed.commits > (prior.priorCommits ?? 0);
+    eventDays = momentum === 'shipped' && commitsGrew ? [parsed.endedAt.slice(0, 10)] : [];
+  }
+  for (const day of eventDays) {
+    // Conditional insert in one statement so concurrent submissions can't
+    // race past the per-day cap.
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO ship_events (session_id, user_github_id, day)
+       SELECT ?1, ?2, ?3
+       WHERE (SELECT COUNT(*) FROM ship_events WHERE user_github_id = ?2 AND day = ?3 AND session_id != ?1) < ${DAILY_SHIPPED_CAP}`,
     ).bind(parsed.id, auth.sub, day).run();
   }
 
