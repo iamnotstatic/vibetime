@@ -137,12 +137,18 @@ export async function submitSession(request: Request, env: Env): Promise<Respons
 
   // One row per (session, day). Pre-0.8 CLIs send no shipEvents; derive the
   // single end-day event from momentum, which is exactly the old counting.
-  // The submitted set replaces the session's rows, so corrections (grace
-  // rescore, changed end day) reconcile in both directions.
+  // The submitted set replaces the session's rows FOR TODAY AND LATER ONLY:
+  // past days are announced history and immutable. Without this, a legacy
+  // session reviving after midnight resubmits with a new end day and its
+  // derived event is yanked out of the closed week (this deleted events from
+  // an already-announced week on 2026-09-07). A legacy long-runner therefore
+  // accrues one event per end day it crosses, which approximates the per-day
+  // model within the same caps.
+  const todayDay = new Date().toISOString().slice(0, 10);
   const eventDays = [...new Set(parsed.shipEvents ?? (momentum === 'shipped' ? [parsed.endedAt.slice(0, 10)] : []))].sort();
   await env.DB.prepare(
-    `DELETE FROM ship_events WHERE session_id = ?${eventDays.length ? ` AND day NOT IN (${eventDays.map(() => '?').join(',')})` : ''}`,
-  ).bind(parsed.id, ...eventDays).run();
+    `DELETE FROM ship_events WHERE session_id = ? AND day >= ?${eventDays.length ? ` AND day NOT IN (${eventDays.map(() => '?').join(',')})` : ''}`,
+  ).bind(parsed.id, todayDay, ...eventDays).run();
   for (const day of eventDays) {
     const capped = await env.DB.prepare(
       `SELECT COUNT(*) AS n FROM ship_events WHERE user_github_id = ? AND day = ? AND session_id != ?`,
