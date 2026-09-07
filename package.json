@@ -18,7 +18,8 @@
     "sessions",
     "claude",
     "codex",
-    "gemini"
+    "gemini",
+    "aster"
   ],
   "author": "iamnotstatic",
   "license": "MIT",

@@ -6,7 +6,7 @@
 
 <p align="center">Track what you actually ship with AI.</p>
 
-<p align="center">Vibetime wraps Claude Code, Codex, and Gemini and prints a session summary every time you're done. No config, no daemon, no account by default.</p>
+<p align="center">Vibetime wraps Claude Code, Codex, Gemini, and Aster and prints a session summary every time you're done. No config, no daemon, no account by default.</p>
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/iamnotstatic/vibetime/main/assets/status.png" alt="vibe status" />
@@ -25,7 +25,7 @@ vibe init
 source ~/.zshrc   # or ~/.bashrc — or restart your terminal
 ```
 
-One command sets up everything: shell hooks that wrap `claude`, `codex`, and `gemini` in the terminal, plus desktop session hooks for the Claude Code and Codex apps (see [Desktop apps](#desktop-apps)). The tools work exactly the same — Vibetime tracks your git state while you code and prints the endcard when you're done.
+One command sets up everything: shell hooks that wrap `claude`, `codex`, `gemini`, and `aster` in the terminal, plus desktop session hooks for the Claude Code and Codex apps (see [Desktop apps](#desktop-apps)). The tools work exactly the same — Vibetime tracks your git state while you code and prints the endcard when you're done.
 
 **Fish shell** — `vibe init` writes bash/zsh syntax. Fish users should add hooks manually to `~/.config/fish/config.fish`:
 
@@ -35,7 +35,7 @@ function claude; vibe __wrap claude $argv; end
 
 ## What you get
 
-Every time you close a Claude Code, Codex, or Gemini session:
+Every time you close a Claude Code, Codex, Gemini, or Aster session:
 
 ```
 ╭─────────────────────────────────────────────╮
