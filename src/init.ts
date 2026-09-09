@@ -23,6 +23,18 @@ function hookLines(tool: string, shell: Shell = 'bash'): string {
   ].join('\n');
 }
 
+// Every rc file vibe may have written hooks into across shell switches. A
+// user who ran init under bash and later moved to zsh still has hooks in
+// .bashrc, so removal sweeps all candidates, not just the current shell's
+// file (#4). The removal regexes match bash and fish syntax in one pass.
+export function candidateRcFiles(): string[] {
+  return [
+    join(homedir(), '.bashrc'),
+    join(homedir(), '.zshrc'),
+    join(homedir(), '.config', 'fish', 'config.fish'),
+  ];
+}
+
 export function detectShell(): { shell: Shell; rcFile: string } {
   // Match on the binary name only: a path like /Users/fisher/bin/zsh must not
   // read as fish, or a zsh user gets fish syntax in a config.fish they never
@@ -98,14 +110,7 @@ export function initShellHooks(): void {
   console.log(`\n  restart your shell or run: source ${rcFile}\n`);
 }
 
-export function removeShellHooks(): void {
-  const { rcFile } = detectShell();
-
-  if (!existsSync(rcFile)) {
-    console.log(`\n  ${PURPLE('◆')} nothing to remove — ${rcFile} not found\n`);
-    return;
-  }
-
+function stripHooksFromFile(rcFile: string): boolean {
   const content = readFileSync(rcFile, 'utf-8');
 
   const HOOK_RE = /^(?:[a-zA-Z0-9_-]+\(\) \{ vibe __wrap |function [a-zA-Z0-9_-]+; vibe __wrap .* \$argv; end$)/;
@@ -134,13 +139,25 @@ export function removeShellHooks(): void {
   }
 
   const cleaned = filtered.join('\n');
-
-  if (cleaned === content) {
-    console.log(`\n  ${PURPLE('◆')} no vibetime hooks found in ${rcFile}\n`);
-    return;
-  }
+  if (cleaned === content) return false;
 
   writeFileSync(rcFile, cleaned);
-  console.log(`\n  ${PURPLE('◆')} vibetime hooks removed from ${rcFile}\n`);
-  console.log(`  restart your shell or run: source ${rcFile}\n`);
+  return true;
+}
+
+export function removeShellHooks(): void {
+  let removedAny = false;
+  for (const rcFile of candidateRcFiles()) {
+    if (!existsSync(rcFile)) continue;
+    if (stripHooksFromFile(rcFile)) {
+      removedAny = true;
+      console.log(`\n  ${PURPLE('◆')} vibetime hooks removed from ${rcFile}`);
+    }
+  }
+
+  if (!removedAny) {
+    console.log(`\n  ${PURPLE('◆')} no vibetime hooks found\n`);
+    return;
+  }
+  console.log(`\n  restart your shell to finish\n`);
 }

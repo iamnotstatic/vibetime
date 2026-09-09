@@ -3,7 +3,7 @@ import { homedir, userInfo } from 'node:os';
 import { mkdirSync, chmodSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import chalk from 'chalk';
-import { DEFAULT_TOOLS, detectShell, appendHook, removeHook } from './init.js';
+import { DEFAULT_TOOLS, detectShell, appendHook, removeHook, candidateRcFiles } from './init.js';
 import { PURPLE } from './colors.js';
 
 const RED = chalk.hex('#EF4444');
@@ -87,14 +87,13 @@ export function removeTool(name: string): void {
     return;
   }
 
-  const { rcFile } = detectShell();
-
-  if (!existsSync(rcFile)) {
-    console.log(`\n  ${PURPLE('◆')} nothing to remove — ${rcFile} not found\n`);
-    return;
+  // Sweep every rc file, not just the current shell's: hooks can live in a
+  // previous shell's rc after a switch (#4).
+  let removed = false;
+  for (const rcFile of candidateRcFiles()) {
+    if (!existsSync(rcFile)) continue;
+    if (removeHook(name, rcFile)) removed = true;
   }
-
-  const removed = removeHook(name, rcFile);
   if (removed) {
     console.log(`\n  ${PURPLE('◆')} ${name} removed. restart your terminal to stop tracking.\n`);
     if (DEFAULT_TOOLS.includes(name.toLowerCase())) {
