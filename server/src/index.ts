@@ -6,7 +6,7 @@ import { clientConfig } from './routes/config.js';
 import { error } from './http.js';
 
 // bump this when a new CLI release should be recommended to clients
-const CLI_RECOMMENDED_VERSION = '0.8.0';
+const CLI_RECOMMENDED_VERSION = '0.9.0';
 
 const CORS_HEADERS = {
   'access-control-allow-origin': '*',
