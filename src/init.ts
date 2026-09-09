@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, appendFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { PURPLE } from './colors.js';
 
@@ -24,7 +24,10 @@ function hookLines(tool: string, shell: Shell = 'bash'): string {
 }
 
 export function detectShell(): { shell: Shell; rcFile: string } {
-  const shellEnv = process.env.SHELL || '/bin/zsh';
+  // Match on the binary name only: a path like /Users/fisher/bin/zsh must not
+  // read as fish, or a zsh user gets fish syntax in a config.fish they never
+  // load and their real hooks are never installed.
+  const shellEnv = basename(process.env.SHELL || '/bin/zsh');
   if (shellEnv.includes('fish')) {
     return { shell: 'fish', rcFile: join(homedir(), '.config', 'fish', 'config.fish') };
   }

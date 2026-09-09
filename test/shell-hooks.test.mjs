@@ -99,3 +99,15 @@ test('fish is detected with its standard config path', (t) => {
   assert.equal(detected.shell, 'fish');
   assert.ok(detected.rcFile.endsWith('/.config/fish/config.fish'));
 });
+
+test('a fishy path with a non-fish shell is not detected as fish', (t) => {
+  const previousShell = process.env.SHELL;
+  t.after(() => {
+    if (previousShell === undefined) delete process.env.SHELL;
+    else process.env.SHELL = previousShell;
+  });
+  process.env.SHELL = '/Users/fisher/bin/zsh';
+
+  const detected = detectShell();
+  assert.equal(detected.shell, 'zsh');
+});
