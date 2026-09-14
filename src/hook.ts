@@ -4,7 +4,7 @@ import { isGitRepo, getHeadSha, getDiffStats, getReposDiffStats, baselineRepos, 
 import { refreshAndReap } from './rescore.js';
 import { readConfig } from './config.js';
 import { scoreSession, trackShipEvents } from './score.js';
-import { flushPendingSubmissions } from './submit.js';
+import { flushPendingSubmissions, submitInProgress } from './submit.js';
 import { reconcileInstall } from './reconcile.js';
 
 // Claude Code, Codex, and Cursor deliver a JSON payload on stdin to every hook
@@ -225,6 +225,9 @@ async function onActivity(sessionId: string, cwd: string): Promise<void> {
   try {
     await updateSession(sessionId, updates);
   } catch {}
+
+  const next = { ...session, ...updates };
+  if (next.momentum === 'shipped') submitInProgress(next).catch(() => {});
 }
 
 async function onSessionEnd(sessionId: string, cwd: string): Promise<void> {

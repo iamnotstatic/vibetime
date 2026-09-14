@@ -13,7 +13,7 @@ process.env.VIBE_DIR = mkdtempSync(join(tmpdir(), 'vibe-home-'));
 delete process.env.VIBE_SESSION;
 
 const { handleHook } = await import('../dist/hook.js');
-const { getSessions, updateSession, reapOrphanedSessions } = await import('../dist/db.js');
+const { getSessions, updateSession, reapOrphanedSessions, addSession } = await import('../dist/db.js');
 
 function sh(cmd, cwd) {
   execSync(cmd, { cwd, stdio: 'pipe' });
@@ -156,6 +156,45 @@ test('a session that never ended cleanly still reaps as interrupted, then reopen
   s = find(id);
   assert.equal(s.exitCode, -1);
   assert.equal(s.commits, 1);
+});
+
+test('a shipped hook session that idles out stays shipped, not interrupted', async (t) => {
+  freshDb();
+  const repo = initRepo(scratch(t), 'repo');
+  const id = randomUUID();
+
+  await hook('session-start', id, repo);
+  writeFileSync(join(repo, 'f.txt'), 'one\n');
+  sh('git add f.txt', repo);
+  commit(repo, 'work');
+  await hook('activity', id, repo);
+
+  await updateSession(id, {
+    lastActivityAt: new Date(Date.now() - 31 * 60_000).toISOString(),
+    momentum: 'shipped',
+    commits: 1,
+    linesAdded: 51,
+    filesTouched: 1,
+  });
+
+  await reapOrphanedSessions();
+  const s = find(id);
+  assert.equal(s.exitCode, 0);
+  assert.equal(s.momentum, 'shipped');
+  assert.equal(s.hadCleanEnd, true);
+});
+
+test('addSession is a no-op when the id already exists', async (t) => {
+  freshDb();
+  const repo = initRepo(scratch(t), 'repo');
+  const id = randomUUID();
+  await hook('session-start', id, repo);
+  const first = find(id);
+
+  await addSession({ ...first, commits: 99, momentum: 'idle' });
+  const all = getSessions().filter((s) => s.id === id);
+  assert.equal(all.length, 1);
+  assert.equal(all[0].commits, first.commits);
 });
 
 test('Codex hook sessions are labelled separately from Claude sessions', async (t) => {

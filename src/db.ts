@@ -139,6 +139,9 @@ function writeDb(data: DbSchema): void {
 export async function addSession(session: Session): Promise<void> {
   await withLock(() => {
     const data = readDb();
+    // Parallel hook processes (Cursor native + imported Claude hooks) can both
+    // pass the in-memory existence check; the lock makes this the real gate.
+    if (data.sessions.some((s) => s.id === session.id)) return;
     data.sessions.push(session);
     writeDb(data);
   });
@@ -187,11 +190,12 @@ export async function reapOrphanedSessions(): Promise<void> {
       // so the rescore grace window still covers work committed just after.
       s.durationSeconds += Math.round(INACTIVITY_TIMEOUT_MS / 1000);
       s.endedAt = new Date(lastMs + INACTIVITY_TIMEOUT_MS).toISOString();
-      if (s.hadCleanEnd) {
-        // Revived after a clean end (see hook.ts): idling out again is not an
-        // interruption — re-finalize as the clean end it already had, keeping
-        // the momentum scored against live stats.
+      if (s.hadCleanEnd || s.momentum === 'shipped' || s.momentum === 'progressed') {
+        // Cursor often never fires sessionEnd when the window closes. Idle-out
+        // still means the work happened — don't downgrade a shipped session.
+        // hadCleanEnd covers the Claude/Codex revival path as before.
         s.exitCode = 0;
+        if (!s.hadCleanEnd) s.hadCleanEnd = true;
       } else {
         s.exitCode = 1;
         s.momentum = 'interrupted';

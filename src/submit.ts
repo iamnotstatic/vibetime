@@ -76,6 +76,18 @@ export async function submitInProgress(session: Session, budgetMs = 1500): Promi
   }
 }
 
+function uniquePending(sessions: Session[]): Session[] {
+  const byId = new Map<string, Session>();
+  for (const s of sessions) {
+    if (s.submittedAt || s.exitCode === -1 || s.durationSeconds < 60) continue;
+    const prev = byId.get(s.id);
+    if (!prev || s.commits > prev.commits || (s.commits === prev.commits && s.durationSeconds > prev.durationSeconds)) {
+      byId.set(s.id, s);
+    }
+  }
+  return [...byId.values()];
+}
+
 export async function flushPendingSubmissions(budgetMs: number): Promise<void> {
   const deadline = Date.now() + budgetMs;
 
@@ -84,8 +96,7 @@ export async function flushPendingSubmissions(budgetMs: number): Promise<void> {
   let auth: AuthRecord | null = await currentAuth(budgetMs);
   if (!auth) return;
 
-  const pending = getSessions()
-    .filter((s) => !s.submittedAt && s.exitCode !== -1 && s.durationSeconds >= 60)
+  const pending = uniquePending(getSessions())
     .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
 
   let renewedOnce = false;
