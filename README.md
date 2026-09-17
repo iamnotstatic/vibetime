@@ -6,7 +6,7 @@
 
 <p align="center">Track what you actually ship with AI.</p>
 
-<p align="center">Vibetime wraps Claude Code, Codex, Gemini, and Aster and prints a session summary every time you're done. Cursor Desktop is tracked through session hooks. No config, no daemon, no account by default.</p>
+<p align="center">Vibetime wraps Claude Code, Codex, Gemini, Aster, and Opencode and prints a session summary every time you're done. Cursor Desktop is tracked through session hooks. No config, no daemon, no account by default.</p>
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/iamnotstatic/vibetime/main/assets/status.png" alt="vibe status" />
@@ -25,13 +25,13 @@ vibe
 source ~/.zshrc   # or ~/.bashrc / ~/.config/fish/config.fish
 ```
 
-Running `vibe` with nothing after it sets up everything: shell hooks that wrap `claude`, `codex`, `gemini`, and `aster` in the terminal, plus desktop session hooks for the Claude Code, Codex, and Cursor apps (see [Desktop apps](#desktop-apps)). The tools work exactly the same — Vibetime tracks your git state while you code and prints the endcard when you're done.
+Running `vibe` with nothing after it sets up everything: shell hooks that wrap `claude`, `codex`, `gemini`, `aster`, and `opencode` in the terminal, plus desktop session hooks for the Claude Code, Codex, and Cursor apps (see [Desktop apps](#desktop-apps)). The tools work exactly the same — Vibetime tracks your git state while you code and prints the endcard when you're done.
 
 Fish, Bash, and Zsh are detected automatically, and the matching syntax is written to that shell's rc file. `vibe init` does the same thing explicitly, and re-running it is always safe.
 
 ## What you get
 
-Every time you close a Claude Code, Codex, Gemini, Aster, or Cursor session:
+Every time you close a Claude Code, Codex, Gemini, Aster, Opencode, or Cursor session:
 
 ```
 ╭─────────────────────────────────────────────╮
