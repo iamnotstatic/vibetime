@@ -76,6 +76,22 @@ export async function submitInProgress(session: Session, budgetMs = 1500): Promi
   }
 }
 
+function pendingSessions(): Session[] {
+  return getSessions().filter((s) => !s.submittedAt && s.exitCode !== -1 && s.durationSeconds >= 60);
+}
+
+// What `vibe status` reports as waiting. It shares pendingSessions with the
+// flush deliberately: two copies of the rule would drift, and the count would
+// then name work the flush was never going to send.
+//
+// The login gate is the same one the flush returns on. Without it a local-only
+// user, who has no account by design, is told every session they ever ran is
+// stuck and pointed at a command that cannot clear it.
+export function pendingSubmissionCount(): number {
+  if (!readAuth()) return 0;
+  return pendingSessions().length;
+}
+
 export async function flushPendingSubmissions(budgetMs: number): Promise<void> {
   const deadline = Date.now() + budgetMs;
 
@@ -84,9 +100,7 @@ export async function flushPendingSubmissions(budgetMs: number): Promise<void> {
   let auth: AuthRecord | null = await currentAuth(budgetMs);
   if (!auth) return;
 
-  const pending = getSessions()
-    .filter((s) => !s.submittedAt && s.exitCode !== -1 && s.durationSeconds >= 60)
-    .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+  const pending = pendingSessions().sort((a, b) => a.startedAt.localeCompare(b.startedAt));
 
   let renewedOnce = false;
   for (let i = 0; i < pending.length; i++) {

@@ -169,7 +169,11 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
       console.error(`  vibe: failed to save session — ${e instanceof Error ? e.message : 'unknown error'}`);
     }
     if (showEndcard) console.log(renderEndcard({ ...session, ...final }));
-    await flushPendingSubmissions(1500).catch(() => {});
+    // Generous budget on purpose: the session is over and the endcard already
+    // printed, so waiting a few seconds here is the difference between a ship
+    // that counts and one that sits unsubmitted until some later flush gets
+    // lucky. (The desktop hook path stays at 1500ms — editors cap it.)
+    await flushPendingSubmissions(8000).catch(() => {});
     if (showEndcard) {
       // After the flush, so a renewal that just succeeded doesn't nag.
       if (needsLogin()) console.log(renderSignedOutNotice());

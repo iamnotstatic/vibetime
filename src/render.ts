@@ -78,7 +78,7 @@ export function renderEndcard(session: Session): string {
   ].join('\n');
 }
 
-export function renderStatus(sessions: Session[], signedOut = false): string {
+export function renderStatus(sessions: Session[], signedOut = false, pending = 0): string {
   const now = new Date();
   const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
   const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
@@ -86,9 +86,10 @@ export function renderStatus(sessions: Session[], signedOut = false): string {
   const dateStr = `${dayName} ${now.getDate()} ${months[now.getMonth()]}`;
 
   const header = `${PURPLE('◆')} vibe  ·  today  ·  ${dateStr}`;
+  const pendingLines = !signedOut && pending > 0 ? [renderPendingNotice(pending)] : [];
 
   if (sessions.length === 0) {
-    return `\n${header}\n\n  no sessions today. start a vibe coding session to begin tracking.\n`;
+    return `\n${header}\n\n  no sessions today. start a vibe coding session to begin tracking.\n${pendingLines.length ? '\n' + pendingLines.join('') : ''}`;
   }
 
   const maxProjectLen = Math.max(...sessions.map(s => truncateProject(s.project).length));
@@ -117,7 +118,16 @@ export function renderStatus(sessions: Session[], signedOut = false): string {
     summary,
     '',
     ...(signedOut ? [renderSignedOutNotice()] : []),
+    ...pendingLines,
   ].join('\n');
+}
+
+// Shown under `vibe status` when ended sessions are still waiting on the
+// server. Flushes fail silently by design (tracking must never block the
+// terminal), so without this a user can ship for days and never know nothing
+// counted. Points at the one command that retries the upload immediately.
+export function renderPendingNotice(count: number): string {
+  return `  ${PURPLE('◆')} ${count} session${count === 1 ? '' : 's'} waiting to submit · run ${PURPLE('vibe leaderboard')} to retry\n`;
 }
 
 // Shown after the endcard and under `vibe status` when the server rejected the

@@ -15,7 +15,7 @@ import { installCursorHooks, removeCursorHooks } from './cursor-hooks.js';
 import { handleHook, parseHookTool } from './hook.js';
 import { login, logout, readAuth, needsLogin, offerLogin } from './auth.js';
 import { fetchLeaderboard } from './leaderboard.js';
-import { flushPendingSubmissions } from './submit.js';
+import { flushPendingSubmissions, pendingSubmissionCount } from './submit.js';
 import { WEB_BASE } from './api.js';
 import chalk from 'chalk';
 import open from 'open';
@@ -75,7 +75,7 @@ async function showStatus(): Promise<void> {
     return false;
   });
 
-  console.log(renderStatus(todaySessions, needsLogin()));
+  console.log(renderStatus(todaySessions, needsLogin(), pendingSubmissionCount()));
 }
 
 // Bare `vibe` is the first thing anyone types after installing, and npm hides

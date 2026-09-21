@@ -110,7 +110,7 @@ Once logged in, the endcard renders as usual and the session submits in the back
 
 Signed in after you'd already been tracking? Nothing is lost. Sessions from the last two weeks submit on the next flush, and `vibe leaderboard` triggers one immediately.
 
-Still not there? Run `vibe status`. A session marked `progressed` or `tinkering` didn't qualify, and that's the point: only shipping scores.
+Still not there? Run `vibe status`. A session marked `progressed` or `tinkering` didn't qualify, and that's the point: only shipping scores. If ended sessions are still waiting on the server, `vibe status` says so — run `vibe leaderboard` to retry the upload.
 
 **Submitted fields:** `tool`, `startedAt`, `endedAt`, `durationSeconds`, `commits`, `linesAdded`, `linesRemoved`, `filesTouched`, `momentum`, and a SHA-256 hash of the project name. Branch names, raw repo names, exit codes, and your local handle never leave the machine.
 
