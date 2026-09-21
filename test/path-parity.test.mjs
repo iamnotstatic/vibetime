@@ -21,6 +21,12 @@ const SHARED = ['submit', 'remote-config', 'score', 'reconcile', 'rescore'];
 // you say "this one really does not apply", with the reason attached.
 const ALLOWED = {
   // 'module': { name: 'why it cannot apply to the other path' },
+  'remote-config': {
+    // The one capability a hook genuinely cannot carry: it prints. Hook stdout
+    // belongs to the editor, so a desktop user is reached through `vibe status`,
+    // `log` and `leaderboard` instead, which is the whole point of #68.
+    recommendedUpgrade: 'the hook path has no stdout a user ever reads',
+  },
 };
 
 function capabilities(src, mod) {
