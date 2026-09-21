@@ -26,6 +26,7 @@ interface IncomingSession {
   filesTouched: number;
   momentum?: string;
   shipEvents?: string[];
+  branchHash: string | null;
 }
 
 function parseSession(raw: unknown): IncomingSession | string {
@@ -52,7 +53,12 @@ function parseSession(raw: unknown): IncomingSession | string {
     // never honestly claim more event days than it has commits.
     if (s.shipEvents.length > (s.commits as number)) return 'shipEvents exceed commits';
   }
-  return s as unknown as IncomingSession;
+  // Sanitised, never rejected: the client drops a 400 permanently and silently,
+  // so a rule here would discard whole sessions to reject one field.
+  const branchHash = typeof s.branchHash === 'string' && /^[0-9a-f]{8,64}$/.test(s.branchHash)
+    ? s.branchHash
+    : null;
+  return { ...(s as unknown as IncomingSession), branchHash };
 }
 
 export async function submitSession(request: Request, env: Env): Promise<Response> {
@@ -131,15 +137,17 @@ export async function submitSession(request: Request, env: Env): Promise<Respons
 
   const submittedAt = new Date().toISOString();
   await env.DB.prepare(
-    `INSERT INTO sessions (id, user_github_id, tool, project_hash, started_at, ended_at,
+    `INSERT INTO sessions (id, user_github_id, tool, project_hash, branch_hash, started_at, ended_at,
                            duration_seconds, commits, lines_added, lines_removed,
                            files_touched, momentum, submitted_at,
                            event_baseline_commits, event_baseline_lines_added,
                            event_baseline_lines_removed, event_baseline_files)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        tool = excluded.tool,
        project_hash = excluded.project_hash,
+       -- A client that stops sending one must not blank what we already have.
+       branch_hash = COALESCE(excluded.branch_hash, sessions.branch_hash),
        started_at = excluded.started_at,
        ended_at = excluded.ended_at,
        duration_seconds = excluded.duration_seconds,
@@ -154,7 +162,7 @@ export async function submitSession(request: Request, env: Env): Promise<Respons
        event_baseline_files = excluded.event_baseline_files
      WHERE sessions.user_github_id = excluded.user_github_id`,
   ).bind(
-    parsed.id, auth.sub, parsed.tool, parsed.projectHash, parsed.startedAt, parsed.endedAt,
+    parsed.id, auth.sub, parsed.tool, parsed.projectHash, parsed.branchHash, parsed.startedAt, parsed.endedAt,
     parsed.durationSeconds, parsed.commits, parsed.linesAdded, parsed.linesRemoved,
     parsed.filesTouched, momentum, submittedAt,
     baseline.commits, baseline.linesAdded, baseline.linesRemoved, baseline.filesTouched,
