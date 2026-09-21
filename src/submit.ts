@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { getSessions, updateSession, type Session } from './db.js';
 import { readAuth, markSignedOut, refreshAuth, jwtExpiresAtMs, type AuthRecord } from './auth.js';
 import { request, ApiError } from './api.js';
+import { branchFingerprint } from './fingerprint.js';
 
 // Renew ahead of expiry so submissions rarely meet a 401. Two days of slack on
 // a seven-day token means one successful flush a week keeps auth alive forever.
@@ -16,6 +17,8 @@ function buildPayload(s: Session): Record<string, unknown> {
     id: s.id,
     tool: s.tool.split('/').pop() || s.tool,
     projectHash: projectHash(s.project),
+    // Salted locally: tells two sessions apart by branch without the name.
+    ...(branchFingerprint(s.branch) ? { branchHash: branchFingerprint(s.branch) } : {}),
     startedAt: s.startedAt,
     endedAt: s.endedAt,
     durationSeconds: s.durationSeconds,

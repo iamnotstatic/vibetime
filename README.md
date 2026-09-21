@@ -112,7 +112,7 @@ Signed in after you'd already been tracking? Nothing is lost. Sessions from the 
 
 Still not there? Run `vibe status`. A session marked `progressed` or `tinkering` didn't qualify, and that's the point: only shipping scores. If ended sessions are still waiting on the server, `vibe status` says so — run `vibe leaderboard` to retry the upload.
 
-**Submitted fields:** `tool`, `startedAt`, `endedAt`, `durationSeconds`, `commits`, `linesAdded`, `linesRemoved`, `filesTouched`, `momentum`, and a SHA-256 hash of the project name. Branch names, raw repo names, exit codes, and your local handle never leave the machine.
+**Submitted fields:** `tool`, `startedAt`, `endedAt`, `durationSeconds`, `commits`, `linesAdded`, `linesRemoved`, `filesTouched`, `momentum`, a SHA-256 hash of the project name, and a salted hash of the branch name. The branch salt is random, generated on your machine, and never sent, so the hash only says whether two of your sessions were on the same branch and cannot be turned back into a name. Branch names, raw repo names, exit codes, and your local handle never leave the machine.
 
 `vibe logout` removes `~/.vibe/auth.json` and submission stops immediately.
 
