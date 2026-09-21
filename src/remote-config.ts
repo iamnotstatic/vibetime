@@ -74,16 +74,22 @@ export async function refreshTunables(timeoutMs = 3000): Promise<void> {
   if (loaded.fetchedAt && Date.now() - Date.parse(loaded.fetchedAt) < STALE_AFTER_MS) return;
   try {
     const fetched = await request<Partial<Tunables>>('/config', { timeoutMs });
+    // Persisted so a process that made no request can still report it: the
+    // header only reaches whoever called the server, and on the desktop path
+    // that is a hook whose stdout belongs to the editor.
+    //
+    // Carried over when this response did not name a newer one. A stripped
+    // header or a momentary rollback would otherwise erase what we already
+    // knew, and the nudge would go quiet until some later refresh restored it.
+    // Keeping it is safe because recommendedUpgrade compares on read.
+    const recommendedVersion = getRecommendedVersion() ?? loaded.recommendedVersion;
     ensureVibeDir();
     writeFileSync(CACHE_PATH, JSON.stringify({
       pollIntervalMs: clamp('pollIntervalMs', fetched.pollIntervalMs),
       inProgressSubmitIntervalMs: clamp('inProgressSubmitIntervalMs', fetched.inProgressSubmitIntervalMs),
       inactivityTimeoutMs: clamp('inactivityTimeoutMs', fetched.inactivityTimeoutMs),
       fetchedAt: new Date().toISOString(),
-      // Persisted so a process that made no request can still report it. The
-      // header only reaches whichever process happened to call the server, and
-      // on the desktop path that is a hook whose stdout belongs to the editor.
-      ...(getRecommendedVersion() ? { recommendedVersion: getRecommendedVersion() } : {}),
+      ...(recommendedVersion ? { recommendedVersion } : {}),
     }, null, 2) + '\n');
   } catch {}
 }

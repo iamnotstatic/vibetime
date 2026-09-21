@@ -52,6 +52,30 @@ test('a refresh persists the recommended version it was told about', async () =>
     'without this the header is known only to the process that made the request');
 });
 
+// A stripped header, a rollback, or a response naming an older version must
+// not erase what we already knew, or the nudge goes quiet until some later
+// refresh happens to restore it. The server here never sets the header.
+test('a response that names no newer version keeps the one we had', async () => {
+  const quiet = createServer((req, res) => {
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ pollIntervalMs: 30_000, inProgressSubmitIntervalMs: 300_000, inactivityTimeoutMs: 1_800_000 }));
+  });
+  await new Promise((r) => quiet.listen(0, '127.0.0.1', r));
+  const prevApi = process.env.VIBE_API;
+  process.env.VIBE_API = `http://127.0.0.1:${quiet.address().port}`;
+  try {
+    writeCache({ recommendedVersion: '9.9.9', fetchedAt: '2020-01-01T00:00:00Z' });
+    const { refreshTunables } = await import(`../dist/remote-config.js?nudge=quiet`);
+    await refreshTunables();
+    const cached = JSON.parse(readFileSync(CACHE, 'utf-8'));
+    assert.notEqual(cached.fetchedAt, '2020-01-01T00:00:00Z', 'the refresh must actually have run');
+    assert.equal(cached.recommendedVersion, '9.9.9');
+  } finally {
+    quiet.close();
+    process.env.VIBE_API = prevApi;
+  }
+});
+
 // The bug. A desktop session runs through hooks, whose stdout the editor owns,
 // and `vibe status` makes no request at all.
 test('a process that made no request still reports the upgrade', () => {
