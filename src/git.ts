@@ -296,14 +296,18 @@ interface CommittedStats {
 // reachable from the worktree's tip and from no baseline. Merging that worktree
 // back mid-session doesn't double count either — the commits land in the same
 // reachability set whether one tip or two can see them.
-// Empty means signed out, and signed out means no filter: deriving the noreply
-// forms needs a login, so the repo address alone would drop every web-UI commit.
+// Filter only when both halves of the identity are in hand: the account's
+// noreply forms, which need a login, and the address this repo commits under.
+// Either one missing means we cannot recognise your own work, and counting none
+// of it is worse than counting too much. Falls back to the unfiltered range.
+//
 // Angle brackets anchor to the author line; bare `bob@x.com` also matches
 // `bigbob@x.com`.
 function authorArgs(identities: string[], repoPath: string): string[] {
   if (identities.length === 0) return [];
   const configured = runGit(['config', 'user.email'], repoPath);
-  const all = [...new Set([configured, ...identities].filter(Boolean))];
+  if (!configured) return [];
+  const all = [...new Set([configured, ...identities])];
   return ['--fixed-strings', ...all.map((email) => `--author=<${email}>`)];
 }
 

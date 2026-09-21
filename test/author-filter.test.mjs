@@ -49,6 +49,32 @@ test('signed out counts every commit, exactly as before', (t) => {
   assert.equal(stats.filesTouched, 2);
 });
 
+// Signed in, the noreply forms alone match no locally-authored commit. If the
+// filter ran on those, a repo with no resolvable identity would report zero for
+// work the user actually did, which is the failure this was built to avoid.
+test('no resolvable git identity falls back to unfiltered, never to zero', (t) => {
+  const prev = process.env.GIT_CONFIG_GLOBAL;
+  process.env.GIT_CONFIG_GLOBAL = '/dev/null';
+  try {
+    const parent = scratch(t);
+    sh('git init -qb main repo', parent);
+    const repo = join(parent, 'repo');
+    sh('git config user.name tester', repo);
+    sh('git -c user.email=seed@example.com -c user.name=seed commit -q --allow-empty -m init', repo);
+    const baseline = baselineRepos(repo);
+
+    commitAs(repo, MINE, 'mine', 10);
+    commitAs(repo, 'them@example.com', 'theirs', 20);
+
+    const stats = getReposDiffStats(baseline, ['1+me@users.noreply.github.com']);
+    assert.equal(stats.commits, 2, 'counting none of someone\'s work is worse than counting too much');
+    assert.equal(stats.linesAdded, 30);
+  } finally {
+    if (prev === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+    else process.env.GIT_CONFIG_GLOBAL = prev;
+  }
+});
+
 test('signed in counts only your commits, lines and files', (t) => {
   const repo = initRepo(scratch(t));
   const baseline = baselineRepos(repo);
