@@ -1,0 +1,46 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  cli:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor from package.json engines, and current. Tests spawn git and
+        # child processes, so a version difference here is a real difference.
+        node: ['20', '22']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      # Tests shell out to git and assert on author attribution, so a runner
+      # with no identity configured fails in ways a laptop never does.
+      - name: configure git
+        run: |
+          git config --global user.email ci@vibetime.test
+          git config --global user.name ci
+          git config --global init.defaultBranch main
+      - run: npm run build
+      - run: npm test
+
+  server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+        working-directory: server
+      - run: npm run typecheck
+        working-directory: server
