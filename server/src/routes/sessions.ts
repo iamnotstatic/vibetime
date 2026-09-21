@@ -156,6 +156,10 @@ export async function submitSession(request: Request, env: Env): Promise<Respons
        lines_removed = excluded.lines_removed,
        files_touched = excluded.files_touched,
        momentum = excluded.momentum,
+       -- Left out of this list, it recorded when the row was created and never
+       -- moved again, so "what submitted recently" answered nothing. It has
+       -- misled two investigations that both had to be redone on ended_at.
+       submitted_at = excluded.submitted_at,
        event_baseline_commits = excluded.event_baseline_commits,
        event_baseline_lines_added = excluded.event_baseline_lines_added,
        event_baseline_lines_removed = excluded.event_baseline_lines_removed,
