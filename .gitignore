@@ -2,4 +2,5 @@ node_modules
 dist
 .DS_Store
 .claude
+.agents
 CLAUDE.md

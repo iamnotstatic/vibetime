@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 
@@ -15,6 +15,16 @@ const MAX_DISCOVERED_REPOS = 10;
 function run(cmd: string, cwd?: string) {
   try {
     return execSync(cmd, { cwd, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: GIT_TIMEOUT_MS }).trim();
+  } catch {
+    return '';
+  }
+}
+
+// No shell: these carry an email out of git config, where a quote would either
+// break the command into a silently empty result or run as something else.
+function runGit(args: string[], cwd?: string) {
+  try {
+    return execFileSync('git', args, { cwd, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: GIT_TIMEOUT_MS }).trim();
   } catch {
     return '';
   }
@@ -286,30 +296,46 @@ interface CommittedStats {
 // reachable from the worktree's tip and from no baseline. Merging that worktree
 // back mid-session doesn't double count either — the commits land in the same
 // reachability set whether one tip or two can see them.
-function committedStats(checkouts: { path: string; head: string; startSha: string }[], repoPath: string): CommittedStats {
+// Filter only when both halves of the identity are in hand: the account's
+// noreply forms, which need a login, and the address this repo commits under.
+// Either one missing means we cannot recognise your own work, and counting none
+// of it is worse than counting too much. Falls back to the unfiltered range.
+//
+// Angle brackets anchor to the author line; bare `bob@x.com` also matches
+// `bigbob@x.com`.
+function authorArgs(identities: string[], repoPath: string): string[] {
+  if (identities.length === 0) return [];
+  const configured = runGit(['config', 'user.email'], repoPath);
+  if (!configured) return [];
+  const all = [...new Set([configured, ...identities])];
+  return ['--fixed-strings', ...all.map((email) => `--author=<${email}>`)];
+}
+
+function committedStats(checkouts: { path: string; head: string; startSha: string }[], repoPath: string, identities: string[]): CommittedStats {
   const bases = [...new Set(checkouts.map((c) => c.startSha).filter(isSha))];
   const tips = [...new Set(checkouts.map((c) => c.head).filter(isSha))].filter((t) => !bases.includes(t));
   if (bases.length === 0 || tips.length === 0) {
     return { commits: 0, linesAdded: 0, linesRemoved: 0, files: new Set() };
   }
 
-  const range = [...bases.map((b) => `^${b}`), ...tips].join(' ');
-  const commits = parseInt(run(`git rev-list --count ${range}`, repoPath), 10) || 0;
+  const range = [...bases.map((b) => `^${b}`), ...tips];
+  const authors = authorArgs(identities, repoPath);
+  const commits = parseInt(runGit(['rev-list', '--count', ...authors, ...range], repoPath), 10) || 0;
   // Per-commit numstat rather than a net range diff: a range diff needs a single
   // tip, and summing one per tip would count shared history twice. Merge commits
   // report no numstat, so merged work is counted where it was written.
-  const { added, removed, files } = parseNumstat(run(`git log --format= --numstat ${range}`, repoPath));
+  const { added, removed, files } = parseNumstat(runGit(['log', '--format=', '--numstat', ...authors, ...range], repoPath));
   return { commits, linesAdded: added, linesRemoved: removed, files };
 }
 
 // Stats for every repo the session watches, summed. Files are counted per repo
 // and added up — two repos can hold the same relative path without it being the
 // same file, so there is nothing to de-duplicate across them.
-export function getReposDiffStats(repos: RepoBaseline[]): GitDiffStats {
+export function getReposDiffStats(repos: RepoBaseline[], identities: string[] = []): GitDiffStats {
   const total: GitDiffStats = { commits: 0, linesAdded: 0, linesRemoved: 0, filesTouched: 0 };
   for (const repo of repos) {
     const checkouts = checkoutsOf(repo);
-    const committed = committedStats(checkouts, repo.path);
+    const committed = committedStats(checkouts, repo.path, identities);
     let linesAdded = committed.linesAdded;
     let linesRemoved = committed.linesRemoved;
     // A file already touched by a commit this session can also be sitting

@@ -77,17 +77,36 @@ interface ExchangeResponse {
   avatarUrl: string | null;
 }
 
-// Seconds-precision exp claim from the jwt body, without verifying (the server
-// verifies; the client only needs it to know when to renew).
-export function jwtExpiresAtMs(jwt: string): number | null {
+function jwtPayload(jwt: string): { exp?: number; sub?: number | string } | null {
   try {
     const body = jwt.split('.')[1];
     const pad = body.length % 4 === 0 ? '' : '='.repeat(4 - (body.length % 4));
-    const payload = JSON.parse(Buffer.from(body.replace(/-/g, '+').replace(/_/g, '/') + pad, 'base64').toString('utf-8')) as { exp?: number };
-    return typeof payload.exp === 'number' ? payload.exp * 1000 : null;
+    return JSON.parse(Buffer.from(body.replace(/-/g, '+').replace(/_/g, '/') + pad, 'base64').toString('utf-8'));
   } catch {
     return null;
   }
+}
+
+// Seconds-precision exp claim from the jwt body, without verifying (the server
+// verifies; the client only needs it to know when to renew).
+export function jwtExpiresAtMs(jwt: string): number | null {
+  const exp = jwtPayload(jwt)?.exp;
+  return typeof exp === 'number' ? exp * 1000 : null;
+}
+
+// A GitHub noreply address is exactly <id>+<handle>@..., and login already
+// stored both halves: the jwt `sub` is the id. Empty means signed out, which
+// callers read as "do not filter" rather than "match nothing".
+export function commitIdentities(): string[] {
+  const record = readAuth();
+  if (!record?.handle) return [];
+
+  const identities = [`${record.handle}@users.noreply.github.com`];
+  const sub = jwtPayload(record.jwt)?.sub;
+  if (sub !== undefined && sub !== null && String(sub).length > 0) {
+    identities.unshift(`${sub}+${record.handle}@users.noreply.github.com`);
+  }
+  return identities;
 }
 
 // Swap the refresh token for a fresh access jwt. Returns the record to use:
