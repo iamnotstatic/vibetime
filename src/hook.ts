@@ -215,9 +215,8 @@ async function onActivity(sessionId: string, cwd: string): Promise<void> {
 
   if (reopen) {
     // Back to live; clear the submission so the corrected final state
-    // resubmits — the server upserts on id, so it's safe. The reap is undone
-    // too: leaving the mark would let a later clean end revive at any
-    // distance, which is the rule inverted.
+    // resubmits — the server upserts on id, so it's safe. The reap mark goes
+    // too, or a later clean end would inherit unbounded revival.
     updates.exitCode = -1;
     updates.submittedAt = undefined;
     updates.reapedAt = undefined;

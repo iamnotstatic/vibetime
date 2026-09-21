@@ -38,12 +38,9 @@ export interface Session {
   // if it then goes idle, the reaper re-finalizes it as the clean end it already
   // had instead of downgrading it to `interrupted`.
   hadCleanEnd?: boolean;
-  // Set when the reaper ended this session instead of the editor doing it. The
-  // exit code alone cannot say so, and momentum no longer can either now that a
-  // reaped session keeps the tier its work earned. Revival reads this: a reaped
-  // session can come back at any distance, because the user never closed it.
-  // Sessions reaped by a CLI before this field existed carry `interrupted`
-  // instead, which hook.ts still honours.
+  // The reaper ended this, not the editor, so revival stays unbounded. Neither
+  // the exit code nor momentum can say so now that a reaped session keeps the
+  // tier its work earned. Older records say it with `interrupted` instead.
   reapedAt?: string;
   // UTC days this session shipped on (one leaderboard point each), and the
   // stats snapshot at the last emitted event. Maintained by trackShipEvents in
