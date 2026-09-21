@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 
 const scratch = mkdtempSync(join(tmpdir(), 'vibe-fp-'));
 process.env.VIBE_DIR = scratch;
@@ -20,6 +20,35 @@ function fingerprintIn(dir, branch) {
   `;
   return execFileSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf-8' });
 }
+
+// Parallel hook processes hit a cold install together, which is precisely when
+// the fingerprint has to be right. Each spins to a shared wall-clock instant:
+// without the barrier, node's staggered startup lets the first writer finish
+// and the race passes by luck. It raced 6/6 before the salt was written with
+// link(), which fails rather than overwrites.
+test('simultaneous first runs agree on one salt', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'vibe-fp-race-'));
+  const startAt = Date.now() + 700;
+  const script = `
+    process.env.VIBE_DIR = ${JSON.stringify(dir)};
+    const { branchFingerprint } = await import(${JSON.stringify(new URL('../dist/fingerprint.js', import.meta.url).href)});
+    while (Date.now() < ${startAt}) {}
+    process.stdout.write(branchFingerprint('main'));
+  `;
+  const kids = Array.from({ length: 6 }, () =>
+    spawn(process.execPath, ['--input-type=module', '-e', script], { stdio: ['ignore', 'pipe', 'ignore'] }));
+
+  const out = kids.map((k) => new Promise((resolve) => {
+    let buf = '';
+    k.stdout.on('data', (c) => { buf += c; });
+    k.on('close', () => resolve(buf));
+  }));
+
+  return Promise.all(out).then((results) => {
+    assert.equal(new Set(results).size, 1,
+      `one branch must have one fingerprint, got ${[...new Set(results)].join(' ')}`);
+  });
+});
 
 test('the same branch always fingerprints the same way', () => {
   assert.equal(branchFingerprint('main'), branchFingerprint('main'));
