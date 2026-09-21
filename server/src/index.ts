@@ -3,6 +3,7 @@ import { exchangeAuth, refreshAuth, revokeAuth } from './routes/auth.js';
 import { submitSession } from './routes/sessions.js';
 import { leaderboardJson, leaderboardHtml } from './routes/leaderboard.js';
 import { clientConfig } from './routes/config.js';
+import { faviconResponse } from './views/favicon.js';
 import { error } from './http.js';
 
 // bump this when a new CLI release should be recommended to clients
@@ -47,6 +48,9 @@ export default {
           return withCors(await leaderboardJson(request, env));
         case 'GET /leaderboard':
           return await leaderboardHtml(request, env);
+        case 'GET /favicon.svg':
+        case 'GET /favicon.ico':
+          return faviconResponse();
         case 'GET /':
           return Response.redirect(new URL('/leaderboard', request.url).toString(), 302);
         default:
