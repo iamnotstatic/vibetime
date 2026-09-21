@@ -117,7 +117,9 @@ function diffFor(session: Session, cwd: string): GitDiffStats | null {
 // or tool call revives it within the same second anyway.
 function reopenKind(session: Session, now: number): 'reaped' | 'clean' | null {
   if (session.exitCode === -1) return null; // still open — nothing to revive
-  if (session.momentum === 'interrupted') return 'reaped';
+  // `reapedAt` is the signal; `interrupted` is the same fact as written by a
+  // CLI from before the field existed, and those records must keep reviving.
+  if (session.reapedAt || session.momentum === 'interrupted') return 'reaped';
   if (now - new Date(session.endedAt).getTime() <= INACTIVITY_TIMEOUT_MS) return 'clean';
   return null;
 }
@@ -213,9 +215,12 @@ async function onActivity(sessionId: string, cwd: string): Promise<void> {
 
   if (reopen) {
     // Back to live; clear the submission so the corrected final state
-    // resubmits — the server upserts on id, so it's safe.
+    // resubmits — the server upserts on id, so it's safe. The reap is undone
+    // too: leaving the mark would let a later clean end revive at any
+    // distance, which is the rule inverted.
     updates.exitCode = -1;
     updates.submittedAt = undefined;
+    updates.reapedAt = undefined;
   }
 
   // Refresh git stats on revival (to recover work shipped while closed) and
@@ -278,6 +283,7 @@ async function onSessionEnd(sessionId: string, cwd: string): Promise<void> {
     momentum: scoreSession({ ...(stats ?? session), exitCode: 0 }, config),
     exitCode: 0,
     hadCleanEnd: true,
+    reapedAt: undefined,
     lastActivityAt: new Date(now).toISOString(),
     // Clear any earlier submission so the corrected final state resubmits.
     submittedAt: undefined,

@@ -1,7 +1,7 @@
 import { getSessions, updateSession, reapOrphanedSessions, INACTIVITY_TIMEOUT_MS, type Session } from './db.js';
 import { getReposDiffStats } from './git.js';
 import { readConfig } from './config.js';
-import { scoreSession, trackShipEvents } from './score.js';
+import { scoreSession, scoreReaped, trackShipEvents } from './score.js';
 
 // How long after a session ends its work can still land. You close the tab and
 // commit from the terminal a minute later; you step away mid-task and come back
@@ -67,7 +67,9 @@ export async function refreshRecentSessions(): Promise<void> {
     await updateSession(session.id, {
       ...stats,
       ...(trackShipEvents(session, stats, config, now) ?? {}),
-      momentum: scoreSession({ ...stats, exitCode: session.exitCode }, config),
+      momentum: session.reapedAt
+        ? scoreReaped(stats, config)
+        : scoreSession({ ...stats, exitCode: session.exitCode }, config),
       // The corrected state has to reach the server; it upserts on id, so
       // resubmitting is safe.
       submittedAt: undefined,

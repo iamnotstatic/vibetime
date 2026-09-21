@@ -76,8 +76,19 @@ export async function submitInProgress(session: Session, budgetMs = 1500): Promi
   }
 }
 
+// Deduped by id: parallel hook processes could both pass the existence check
+// and write the same session twice, and a flush would then upload the empty
+// copy over the real one. More commits wins, longer session breaks the tie.
 function pendingSessions(): Session[] {
-  return getSessions().filter((s) => !s.submittedAt && s.exitCode !== -1 && s.durationSeconds >= 60);
+  const byId = new Map<string, Session>();
+  for (const s of getSessions()) {
+    if (s.submittedAt || s.exitCode === -1 || s.durationSeconds < 60) continue;
+    const prev = byId.get(s.id);
+    if (!prev || s.commits > prev.commits || (s.commits === prev.commits && s.durationSeconds > prev.durationSeconds)) {
+      byId.set(s.id, s);
+    }
+  }
+  return [...byId.values()];
 }
 
 // What `vibe status` reports as waiting. It shares pendingSessions with the

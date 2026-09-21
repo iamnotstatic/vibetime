@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -70,6 +70,22 @@ test('submitted, running and sub-minute sessions do not count', async () => {
 
   await session({ exitCode: -1, endedAt: undefined });
   await session({ durationSeconds: 30 });
+
+  assert.equal(pendingSubmissionCount(), before);
+});
+
+// Rows duplicated on disk before addSession took the lock. The flush and the
+// count read the same function, so a duplicate must collapse for both or the
+// count reports work that resolves to a single upload.
+test('a session duplicated on disk counts once', () => {
+  login();
+  const dbPath = join(scratch, 'sessions.json');
+  const db = JSON.parse(readFileSync(dbPath, 'utf-8'));
+  const row = db.sessions.find((s) => !s.submittedAt && s.exitCode === 0);
+  const before = pendingSubmissionCount();
+
+  db.sessions.push({ ...row, commits: 0, linesAdded: 0, filesTouched: 0 });
+  writeFileSync(dbPath, JSON.stringify(db, null, 2) + '\n');
 
   assert.equal(pendingSubmissionCount(), before);
 });

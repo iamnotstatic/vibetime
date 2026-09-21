@@ -1,8 +1,8 @@
 import { join } from 'node:path';
 import { readFileSync, writeFileSync, renameSync, mkdirSync, rmdirSync, unlinkSync, statSync, existsSync } from 'node:fs';
-import { VIBE_DIR, ensureVibeDir } from './config.js';
+import { VIBE_DIR, ensureVibeDir, readConfig } from './config.js';
 import { TUNABLES } from './remote-config.js';
-import type { MomentumTier } from './score.js';
+import { scoreReaped, type MomentumTier } from './score.js';
 import type { RepoBaseline } from './git.js';
 
 export interface Session {
@@ -38,6 +38,13 @@ export interface Session {
   // if it then goes idle, the reaper re-finalizes it as the clean end it already
   // had instead of downgrading it to `interrupted`.
   hadCleanEnd?: boolean;
+  // Set when the reaper ended this session instead of the editor doing it. The
+  // exit code alone cannot say so, and momentum no longer can either now that a
+  // reaped session keeps the tier its work earned. Revival reads this: a reaped
+  // session can come back at any distance, because the user never closed it.
+  // Sessions reaped by a CLI before this field existed carry `interrupted`
+  // instead, which hook.ts still honours.
+  reapedAt?: string;
   // UTC days this session shipped on (one leaderboard point each), and the
   // stats snapshot at the last emitted event. Maintained by trackShipEvents in
   // score.ts; a multi-day session earns each day's event with that day's work.
@@ -143,6 +150,9 @@ function writeDb(data: DbSchema): void {
 export async function addSession(session: Session): Promise<void> {
   await withLock(() => {
     const data = readDb();
+    // Parallel hook processes (Cursor native + imported Claude hooks) can both
+    // pass the in-memory existence check; the lock makes this the real gate.
+    if (data.sessions.some((s) => s.id === session.id)) return;
     data.sessions.push(session);
     writeDb(data);
   });
@@ -198,7 +208,8 @@ export async function reapOrphanedSessions(): Promise<void> {
         s.exitCode = 0;
       } else {
         s.exitCode = 1;
-        s.momentum = 'interrupted';
+        s.reapedAt = s.endedAt;
+        s.momentum = scoreReaped(s, readConfig());
       }
       changed = true;
     }
