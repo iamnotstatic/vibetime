@@ -7,7 +7,7 @@ import { faviconResponse } from './views/favicon.js';
 import { error } from './http.js';
 
 // bump this when a new CLI release should be recommended to clients
-const CLI_RECOMMENDED_VERSION = '0.12.0';
+const CLI_RECOMMENDED_VERSION = '0.13.0';
 
 const CORS_HEADERS = {
   'access-control-allow-origin': '*',
