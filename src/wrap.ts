@@ -6,7 +6,7 @@ import { refreshAndReap } from './rescore.js';
 import { readConfig } from './config.js';
 import { scoreSession, trackShipEvents, type ShipEventState } from './score.js';
 import { renderEndcard, renderSignedOutNotice } from './render.js';
-import { needsLogin } from './auth.js';
+import { needsLogin, commitIdentities } from './auth.js';
 import { reconcileInstall } from './reconcile.js';
 import { flushPendingSubmissions, submitInProgress } from './submit.js';
 import { getRecommendedVersion } from './api.js';
@@ -73,7 +73,7 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
 
     let diffStats = { commits: 0, linesAdded: 0, linesRemoved: 0, filesTouched: 0 };
     if (hasGit) {
-      diffStats = getReposDiffStats(repos);
+      diffStats = getReposDiffStats(repos, commitIdentities());
     }
     const momentum = scoreSession({ ...diffStats, exitCode }, config);
     const tracked = trackShipEvents(eventState, diffStats, config, endMs);

@@ -1,6 +1,7 @@
 import { getSessions, updateSession, reapOrphanedSessions, INACTIVITY_TIMEOUT_MS, type Session } from './db.js';
 import { getReposDiffStats } from './git.js';
 import { readConfig } from './config.js';
+import { commitIdentities } from './auth.js';
 import { scoreSession, scoreReaped, trackShipEvents } from './score.js';
 
 // How long after a session ends its work can still land. You close the tab and
@@ -50,6 +51,7 @@ export async function refreshRecentSessions(): Promise<void> {
   const now = Date.now();
   const all = getSessions();
   const config = readConfig();
+  const identities = commitIdentities();
 
   for (const session of all) {
     // Sessions from an older CLI have no repo baselines to measure against.
@@ -61,7 +63,7 @@ export async function refreshRecentSessions(): Promise<void> {
       if (ownedByAnotherSession(session, all)) continue;
     }
 
-    const stats = getReposDiffStats(session.repos);
+    const stats = getReposDiffStats(session.repos, identities);
     if (!statsChanged(session, stats)) continue;
 
     await updateSession(session.id, {

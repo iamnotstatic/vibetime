@@ -6,6 +6,7 @@ import { readConfig } from './config.js';
 import { scoreSession, trackShipEvents } from './score.js';
 import { flushPendingSubmissions, submitInProgress } from './submit.js';
 import { reconcileInstall } from './reconcile.js';
+import { commitIdentities } from './auth.js';
 import { TUNABLES, refreshTunables } from './remote-config.js';
 
 // Claude Code, Codex, and Cursor deliver a JSON payload on stdin to every hook
@@ -83,7 +84,7 @@ function activeSecondsSince(lastActivityAt: string | undefined, startedAt: strin
 function diffFor(session: Session, cwd: string): GitDiffStats | null {
   if (session.repos?.length) {
     const alive = session.repos.filter((r) => existsSync(r.path));
-    return alive.length ? getReposDiffStats(alive) : null;
+    return alive.length ? getReposDiffStats(alive, commitIdentities()) : null;
   }
   // Fallback for sessions opened by an older CLI, which recorded a single
   // baseline sha against the session cwd.

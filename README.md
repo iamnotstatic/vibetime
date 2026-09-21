@@ -60,6 +60,8 @@ Sessions are scored by what happened in git:
 
 **How duration works** — Vibetime polls your git state every 30 seconds. If no file changes, commits, or staging activity are detected for 30 minutes, the idle time is excluded from your session duration. Laptop sleep and background idle are automatically handled. Non-git projects use wall-clock time.
 
+**Whose commits count** — once you're logged in, only yours. Pulling or merging your team's work into your branch mid-session no longer counts their commits as yours. Vibetime matches on the email in that repo's `git config user.email` plus your GitHub noreply addresses, so commits made from the web UI still count and nothing needs configuring. Logged out, everything in the range counts, as before.
+
 ## Desktop apps
 
 The Claude Code, Codex, and Cursor **Desktop** apps never run the wrapped terminal commands, so the shell wrapper can't see them. Vibetime tracks them through session hooks instead — `vibe init` sets these up automatically. If you ran `vibe init` before desktop support existed, either re-run it or use:
