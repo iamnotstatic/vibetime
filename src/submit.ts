@@ -91,13 +91,10 @@ function pendingSessions(): Session[] {
   return [...byId.values()];
 }
 
-// What `vibe status` reports as waiting. It shares pendingSessions with the
-// flush deliberately: two copies of the rule would drift, and the count would
-// then name work the flush was never going to send.
-//
-// The login gate is the same one the flush returns on. Without it a local-only
-// user, who has no account by design, is told every session they ever ran is
-// stuck and pointed at a command that cannot clear it.
+// Shares pendingSessions with the flush on purpose: a second copy of the rule
+// drifts and the count starts naming work the flush was never going to send.
+// The login gate is the flush's own, or a local-only user with no account by
+// design is told every session they ever ran is stuck.
 export function pendingSubmissionCount(): number {
   if (!readAuth()) return 0;
   return pendingSessions().length;

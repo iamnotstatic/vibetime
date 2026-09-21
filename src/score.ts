@@ -27,12 +27,9 @@ export function scoreSession(session: Scoreable, thresholds: Thresholds): Moment
   return 'idle';
 }
 
-// The reaper's exit code is synthetic: nothing crashed, the editor just never
-// said the session ended. Cursor does this routinely on window close, so a
-// session that shipped four commits was reading back as `interrupted`.
-//
-// `interrupted` keeps the case it actually describes, cut off with nothing to
-// show for it. Anything that landed work is scored on what landed.
+// A reaped exit code is synthetic: nothing crashed, the editor just never said
+// the session ended. So score on what landed, and leave `interrupted` to the
+// case it describes, cut off with nothing to show for it.
 export function scoreReaped(stats: ShipStats, thresholds: Thresholds): MomentumTier {
   const scored = scoreSession({ ...stats, exitCode: 0 }, thresholds);
   return scored === 'idle' ? 'interrupted' : scored;
