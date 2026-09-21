@@ -50,7 +50,7 @@ const label = (d) => `${months[d.getUTCMonth()]} ${d.getUTCDate()}`;
 const range = `${label(start)} – ${label(end)}`;
 const medals = ['🥇', '🥈', '🥉'];
 
-console.log(`\n  ◆ vibe · top shippers · ${range}${current ? ' (week still running)' : ''}\n`);
+console.log(`\n  ◆ vibe · weekly top shippers · ${range}${current ? ' (week still running)' : ''}\n`);
 if (rows.length === 0) {
   console.log('  nothing shipped this week\n');
   process.exit(0);
@@ -59,7 +59,7 @@ const pad = Math.max(...rows.map((r) => r.handle.length));
 rows.forEach((r, i) => console.log(`  ${medals[i]} @${r.handle.padEnd(pad)}  ${r.ships} ship${r.ships === 1 ? '' : 's'}`));
 
 console.log('\n  ── paste ─────────────────────────────\n');
-console.log(`top shippers on vibetime, ${range}\n`);
+console.log(`weekly top shippers on vibetime, ${range}\n`);
 rows.forEach((r, i) => console.log(`${medals[i]} ${r.handle} · ${r.ships} ship${r.ships === 1 ? '' : 's'}`));
 console.log(`\nvibetime.club/leaderboard`);
 console.log();
