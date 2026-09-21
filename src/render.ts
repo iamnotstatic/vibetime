@@ -137,6 +137,13 @@ export function renderSignedOutNotice(): string {
   return `  ${PURPLE('◆')} signed out · run ${PURPLE('vibe login')} so your ships keep counting\n`;
 }
 
+// Printed after the endcard and under every command that already prints. The
+// endcard alone reaches nobody who only uses the desktop apps: their sessions
+// run through hooks, whose stdout belongs to the editor.
+export function renderUpgradeNotice(version: string): string {
+  return `  ${PURPLE('◆')} vibe ${version} available · run ${PURPLE('npm i -g vibetime-cli')}\n`;
+}
+
 // Offered right after setup, because signing in is the one step nobody
 // discovers on their own and the leaderboard is why most people install this.
 // It asks rather than assumes: tracking already works without an account.

@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { VIBE_DIR, ensureVibeDir } from './config.js';
-import { request } from './api.js';
+import { request, getRecommendedVersion, isNewerVersion, CLI_VERSION } from './api.js';
 
 export interface Tunables {
   pollIntervalMs: number;
@@ -42,15 +42,16 @@ function clamp(key: keyof Tunables, value: unknown): number {
 // below does the network, and a hook may only call it where the event's
 // timeout allows (session-start and activity get 10s, but codex caps
 // session-end at 3s, so that path stays local).
-function load(): Tunables & { fetchedAt?: string } {
+function load(): Tunables & { fetchedAt?: string; recommendedVersion?: string } {
   if (!existsSync(CACHE_PATH)) return { ...DEFAULTS };
   try {
-    const raw = JSON.parse(readFileSync(CACHE_PATH, 'utf-8')) as Partial<Tunables> & { fetchedAt?: string };
+    const raw = JSON.parse(readFileSync(CACHE_PATH, 'utf-8')) as Partial<Tunables> & { fetchedAt?: string; recommendedVersion?: string };
     return {
       pollIntervalMs: clamp('pollIntervalMs', raw.pollIntervalMs),
       inProgressSubmitIntervalMs: clamp('inProgressSubmitIntervalMs', raw.inProgressSubmitIntervalMs),
       inactivityTimeoutMs: clamp('inactivityTimeoutMs', raw.inactivityTimeoutMs),
       fetchedAt: raw.fetchedAt,
+      recommendedVersion: typeof raw.recommendedVersion === 'string' ? raw.recommendedVersion : undefined,
     };
   } catch {
     return { ...DEFAULTS };
@@ -73,12 +74,36 @@ export async function refreshTunables(timeoutMs = 3000): Promise<void> {
   if (loaded.fetchedAt && Date.now() - Date.parse(loaded.fetchedAt) < STALE_AFTER_MS) return;
   try {
     const fetched = await request<Partial<Tunables>>('/config', { timeoutMs });
+    // Persisted so a process that made no request can still report it: the
+    // header only reaches whoever called the server, and on the desktop path
+    // that is a hook whose stdout belongs to the editor.
+    //
+    // Carried over when this response did not name a newer one. A stripped
+    // header or a momentary rollback would otherwise erase what we already
+    // knew, and the nudge would go quiet until some later refresh restored it.
+    // Keeping it is safe because recommendedUpgrade compares on read.
+    const recommendedVersion = getRecommendedVersion() ?? loaded.recommendedVersion;
     ensureVibeDir();
     writeFileSync(CACHE_PATH, JSON.stringify({
       pollIntervalMs: clamp('pollIntervalMs', fetched.pollIntervalMs),
       inProgressSubmitIntervalMs: clamp('inProgressSubmitIntervalMs', fetched.inProgressSubmitIntervalMs),
       inactivityTimeoutMs: clamp('inactivityTimeoutMs', fetched.inactivityTimeoutMs),
       fetchedAt: new Date().toISOString(),
+      ...(recommendedVersion ? { recommendedVersion } : {}),
     }, null, 2) + '\n');
   } catch {}
+}
+
+// A newer CLI than this one, or null. Live value first, because a long-running
+// wrapper learns of a release mid-session; otherwise the last one any process
+// on this machine was told about.
+//
+// Comparing against CLI_VERSION on read is what makes it self-clearing: after
+// an upgrade the stored value stops being newer and the nudge stops, with no
+// cache to invalidate.
+export function recommendedUpgrade(): string | null {
+  const live = getRecommendedVersion();
+  if (live) return live;
+  const stored = loaded.recommendedVersion;
+  return stored && isNewerVersion(stored, CLI_VERSION) ? stored : null;
 }

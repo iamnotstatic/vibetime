@@ -5,12 +5,11 @@ import { baselineRepos, describeRepos, getReposDiffStats, getReposFingerprint } 
 import { refreshAndReap } from './rescore.js';
 import { readConfig } from './config.js';
 import { scoreSession, trackShipEvents, type ShipEventState } from './score.js';
-import { renderEndcard, renderSignedOutNotice } from './render.js';
+import { renderEndcard, renderSignedOutNotice, renderUpgradeNotice } from './render.js';
 import { needsLogin, commitIdentities } from './auth.js';
 import { reconcileInstall } from './reconcile.js';
 import { flushPendingSubmissions, submitInProgress } from './submit.js';
-import { getRecommendedVersion } from './api.js';
-import { TUNABLES, refreshTunables } from './remote-config.js';
+import { TUNABLES, refreshTunables, recommendedUpgrade } from './remote-config.js';
 import { PURPLE } from './colors.js';
 
 const POLL_INTERVAL_MS = TUNABLES.pollIntervalMs;
@@ -177,10 +176,8 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
     if (showEndcard) {
       // After the flush, so a renewal that just succeeded doesn't nag.
       if (needsLogin()) console.log(renderSignedOutNotice());
-      const recommended = getRecommendedVersion();
-      if (recommended) {
-        console.log(`  ${PURPLE('◆')} vibe ${recommended} available · run: npm i -g vibetime-cli\n`);
-      }
+      const upgrade = recommendedUpgrade();
+      if (upgrade) console.log(renderUpgradeNotice(upgrade));
     }
     process.exit(exitCode);
   }

@@ -4,7 +4,8 @@ import { Command } from 'commander';
 import { getSessions } from './db.js';
 import { refreshAndReap } from './rescore.js';
 import { readConfig, writeConfig, addTool, removeTool, setInstallOptOut } from './config.js';
-import { renderStatus, renderLog, renderLeaderboard } from './render.js';
+import { renderStatus, renderLog, renderLeaderboard, renderUpgradeNotice } from './render.js';
+import { recommendedUpgrade } from './remote-config.js';
 import { renderTerminalCard, writeHtmlCard } from './share.js';
 import { wrapTool } from './wrap.js';
 import { initShellHooks, removeShellHooks } from './init.js';
@@ -77,6 +78,15 @@ async function showStatus(): Promise<void> {
   });
 
   console.log(renderStatus(todaySessions, needsLogin(), pendingSubmissionCount()));
+  printUpgradeNotice();
+}
+
+// Desktop-only users never see an endcard: their sessions run through hooks,
+// whose stdout belongs to the editor. These commands are the only surface they
+// have, so the nudge rides on all of them rather than the endcard alone.
+function printUpgradeNotice(): void {
+  const upgrade = recommendedUpgrade();
+  if (upgrade) console.log(renderUpgradeNotice(upgrade));
 }
 
 // Bare `vibe` is the first thing anyone types after installing, and npm hides
@@ -147,6 +157,7 @@ program
     const sessions = getSessions();
     const recent = sessions.slice(-20).reverse();
     console.log(renderLog(recent, sessions));
+    printUpgradeNotice();
   });
 
 program
@@ -225,6 +236,7 @@ program
       const data = await fetchLeaderboard();
       const auth = readAuth();
       console.log(renderLeaderboard(data.entries, `${WEB_BASE}/leaderboard`, auth?.handle));
+      printUpgradeNotice();
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'unknown error';
       console.log(`\n  ${RED('✗')} vibe: could not load leaderboard (${msg})\n`);
