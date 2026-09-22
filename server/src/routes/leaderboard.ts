@@ -166,7 +166,7 @@ export async function leaderboardHtml(request: Request, env: Env): Promise<Respo
   return html(renderLeaderboard(data, window, new Date(), windowStart), {
     headers: {
       'cache-control': 'public, max-age=60',
-      'content-security-policy': "default-src 'self'; img-src https://avatars.githubusercontent.com; style-src 'unsafe-inline'; base-uri 'self'; form-action 'self'",
+      'content-security-policy': "default-src 'self'; script-src 'self' https://www.sabilytics.com; connect-src 'self' https://www.sabilytics.com; img-src https://avatars.githubusercontent.com; style-src 'unsafe-inline'; base-uri 'self'; form-action 'self'",
       'referrer-policy': 'strict-origin-when-cross-origin',
       'x-content-type-options': 'nosniff',
     },
