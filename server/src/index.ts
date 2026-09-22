@@ -2,6 +2,7 @@ import type { Env } from './env.js';
 import { exchangeAuth, refreshAuth, revokeAuth } from './routes/auth.js';
 import { submitSession } from './routes/sessions.js';
 import { leaderboardJson, leaderboardHtml } from './routes/leaderboard.js';
+import { parseProfileHandle, profileHtml } from './routes/profile.js';
 import { clientConfig } from './routes/config.js';
 import { faviconResponse } from './views/favicon.js';
 import { error } from './http.js';
@@ -31,8 +32,13 @@ export default {
 
     const url = new URL(request.url);
     const route = `${request.method} ${url.pathname}`;
+    const profileHandle = request.method === 'GET' ? parseProfileHandle(url.pathname) : null;
 
     try {
+      if (profileHandle) {
+        return await profileHtml(request, env, profileHandle);
+      }
+
       switch (route) {
         case 'POST /auth/exchange':
           return withCors(await exchangeAuth(request, env));
