@@ -145,6 +145,12 @@ vibe login</pre>
     td.who a span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   }
 </style>
+<script
+  async
+  src="https://www.sabilytics.com/script.js"
+  data-site="ekujl76w17qf"
+  data-domain="vibetime.club"
+></script>
 </head>
 <body>
 <main>
