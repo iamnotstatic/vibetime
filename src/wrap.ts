@@ -52,14 +52,13 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
 
   // Repair the install before anything else: a new default tool or a newly
   // supported desktop app reaches existing users here, not by them re-running
-  // a command they have no reason to know about.
+  // a command they have no reason to know about. Stays ahead of the spawn: it
+  // rewrites the hook settings the child reads on its own startup.
   reconcileInstall();
 
   // Refresh the server tunables in the background; whatever it fetches applies
   // to the next session, never this one mid-flight.
   refreshTunables().catch(() => {});
-
-  await refreshAndReap();
 
   let eventState: ShipEventState = {};
 
@@ -80,27 +79,49 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
     return { endedAt, durationSeconds, ...diffStats, momentum, exitCode, lastActivityAt, ...eventState };
   }
 
-  // write session immediately so it survives crashes
-  const initial = snapshot(-1);
-  const session: Session = {
-    id: sessionId, tool, project, branch, startedAt,
-    ...initial,
-    startSha: repos.length === 1 ? repos[0].startSha : '',
-    repos,
-  };
-  try { await addSession(session); } catch (e) {
-    console.error(`  vibe: failed to save session — ${e instanceof Error ? e.message : 'unknown error'}`);
-  }
+  // The tool starts now. Everything below the spawn reads git across every
+  // checkout the session watches — and re-reads it for every other open
+  // session — which on a repo with dozens of worktrees ran for over ten
+  // seconds before the tool got its first byte of stdin. None of it is
+  // start-anchored: the baseline above is, and it is already taken.
+  const child = spawn(tool, args, {
+    stdio: 'inherit',
+    env: { ...process.env, VIBE_SESSION: '1' },
+  });
+
+  let prevCommits = 0;
+  let prevLinesAdded = 0;
+  let prevLinesRemoved = 0;
+  let prevTreeState = '';
+  // Refresh before adding this session: a session that just closed on the same
+  // repo is still owed the grace-window work, and an open session here would
+  // claim it instead. Never rejects — a fast-exiting tool must still find its
+  // session to finalize.
+  const ready: Promise<Session> = (async () => {
+    await refreshAndReap().catch(() => {});
+    const initial = snapshot(-1);
+    const session: Session = {
+      id: sessionId, tool, project, branch, startedAt,
+      ...initial,
+      startSha: repos.length === 1 ? repos[0].startSha : '',
+      repos,
+    };
+    try { await addSession(session); } catch (e) {
+      console.error(`  vibe: failed to save session — ${e instanceof Error ? e.message : 'unknown error'}`);
+    }
+    prevCommits = initial.commits;
+    prevLinesAdded = initial.linesAdded;
+    prevLinesRemoved = initial.linesRemoved;
+    prevTreeState = hasGit ? getReposFingerprint(repos) : '';
+    return session;
+  })();
 
   // periodic update while the tool runs — track activity for duration accuracy
-  let prevCommits = initial.commits;
-  let prevLinesAdded = initial.linesAdded;
-  let prevLinesRemoved = initial.linesRemoved;
-  let prevTreeState = hasGit ? getReposFingerprint(repos) : '';
   let lastInProgressSubmitAt = 0;
   let lastSubmitSignature = '';
   const poll = setInterval(async () => {
     try {
+      const session = await ready;
       const now = Date.now();
       const lastMs = new Date(lastActivityAt).getTime();
 
@@ -151,6 +172,7 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
     clearInterval(poll);
     if (cleaned) process.exit(exitCode);
     cleaned = true;
+    const session = await ready;
 
     // accumulate any trailing idle gap (only when git provides activity signals)
     const now = Date.now();
@@ -182,11 +204,6 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
     process.exit(exitCode);
   }
 
-  const child = spawn(tool, args, {
-    stdio: 'inherit',
-    env: { ...process.env, VIBE_SESSION: '1' },
-  });
-
   // signal handling — registered after spawn so child is defined
   let interrupted = false;
   const forwardSignal = (signal: NodeJS.Signals) => {
@@ -200,6 +217,7 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
   child.on('error', async (err: NodeJS.ErrnoException) => {
     reportSpawnError(tool, err);
     if (err.code === 'ENOENT') {
+      await ready;
       try { await deleteSession(sessionId); } catch {}
     }
     finalize(127, false);

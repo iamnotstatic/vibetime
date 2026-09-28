@@ -89,17 +89,23 @@ export function listWorktrees(repoPath: string): Worktree[] {
   const trees: Worktree[] = [];
   let path = '';
   let head = '';
+  let bare = false;
   const flush = () => {
-    if (path && head) trees.push({ path, head });
+    if (path && !bare) trees.push({ path, head });
     path = '';
     head = '';
+    bare = false;
   };
   for (const line of out.split('\n')) {
     if (line.startsWith('worktree ')) {
       flush();
       path = line.slice('worktree '.length);
+    } else if (line === 'bare') {
+      bare = true;
     } else if (line.startsWith('HEAD ')) {
-      head = line.slice('HEAD '.length);
+      // The null sha marks an unborn branch; read it as "no HEAD", which is
+      // what `git rev-parse HEAD` reports for the same checkout.
+      head = line.slice('HEAD '.length).replace(/^0+$/, '');
     }
   }
   flush();
@@ -187,10 +193,12 @@ function isMainCheckout(path: string): boolean {
 
 export function baselineRepos(cwd: string): RepoBaseline[] {
   return discoverRepos(cwd).map((path) => {
-    const worktrees = listWorktrees(path)
+    const all = listWorktrees(path);
+    const worktrees = all
       .filter((t) => t.path !== path)
       .map((t) => ({ path: t.path, startSha: t.head }));
-    return { path, startSha: getHeadSha(path), ...(worktrees.length ? { worktrees } : {}) };
+    const startSha = all.find((t) => t.path === path)?.head ?? getHeadSha(path);
+    return { path, startSha, ...(worktrees.length ? { worktrees } : {}) };
   });
 }
 
@@ -236,10 +244,11 @@ export function getReposFingerprint(repos: RepoBaseline[]): string {
     .join('\n');
 }
 
-function uncommittedStats(cwd: string) {
-  const hasHead = run('git rev-parse --verify HEAD', cwd) !== '';
+// `head` is the checkout's HEAD as already listed; empty on an unborn branch,
+// where only the index can be diffed.
+function uncommittedStats(cwd: string, head: string) {
   return parseNumstat(
-    hasHead ? run('git diff --numstat HEAD', cwd) : run('git diff --numstat --cached', cwd)
+    head ? run('git diff --numstat HEAD', cwd) : run('git diff --numstat --cached', cwd)
   );
 }
 
@@ -344,7 +353,7 @@ export function getReposDiffStats(repos: RepoBaseline[], identities: string[] = 
     // checkout can overlap another there.
     const files = new Set(committed.files);
     for (const checkout of checkouts) {
-      const uncommitted = uncommittedStats(checkout.path);
+      const uncommitted = uncommittedStats(checkout.path, checkout.head);
       linesAdded += uncommitted.added;
       linesRemoved += uncommitted.removed;
       for (const f of uncommitted.files) files.add(f);
