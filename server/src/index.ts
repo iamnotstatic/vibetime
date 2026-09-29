@@ -25,7 +25,7 @@ function withCors(res: Response): Response {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
@@ -48,8 +48,14 @@ export default {
           return withCors(await revokeAuth(request, env));
         case 'GET /config':
           return withCors(clientConfig());
-        case 'POST /sessions':
-          return withCors(await submitSession(request, env));
+        case 'POST /sessions': {
+          // A client that times out cancels the invocation, and the session row
+          // is written before its ship events, so the numbers would land and
+          // the credit would not. The CLI never resends an unchanged payload.
+          const work = submitSession(request, env);
+          ctx.waitUntil(work.catch(() => {}));
+          return withCors(await work);
+        }
         case 'GET /leaderboard.json':
           return withCors(await leaderboardJson(request, env));
         case 'GET /leaderboard':
