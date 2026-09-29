@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { addSession, updateSession, deleteSession, INACTIVITY_TIMEOUT_MS, type Session } from './db.js';
-import { baselineRepos, describeRepos, getReposDiffStats, getReposFingerprint } from './git.js';
+import { addSession, claimSession, updateSession, deleteSession, INACTIVITY_TIMEOUT_MS, type Session } from './db.js';
+import { baselineRepos, describeRepos, getReposDiffStats, getReposFingerprint, type RepoBaseline } from './git.js';
 import { refreshAndReap } from './rescore.js';
 import { readConfig } from './config.js';
 import { scoreSession, trackShipEvents, type ShipEventState } from './score.js';
@@ -23,6 +23,25 @@ function reportSpawnError(tool: string, err: NodeJS.ErrnoException): void {
   console.error(`  vibe: failed to start ${tool}: ${err.message}`);
 }
 
+// Two terminals on one branch are one stream of work. Each would otherwise take
+// its own baseline and count the same commits, earning the branch a ship event
+// once per window. A different branch keeps its own session: that is the
+// parallel workflow this measures, not a duplicate. Finalized and reaped
+// sessions are left alone, having already been credited for what they did.
+// The project name falls back to a directory basename when a repo has no
+// remote, so it alone would merge two unrelated repos that happen to share one.
+// The checkout paths are what actually identify the working tree.
+function sameCheckout(a: RepoBaseline[] | undefined, b: RepoBaseline[]): boolean {
+  if (!a || a.length !== b.length) return false;
+  const left = a.map((r) => r.path).sort();
+  const right = b.map((r) => r.path).sort();
+  return left.every((path, i) => path === right[i]);
+}
+
+function sameBranch(open: Session, project: string, branch: string, repos: RepoBaseline[]): boolean {
+  return open.project === project && open.branch === branch && sameCheckout(open.repos, repos);
+}
+
 export async function wrapTool(tool: string, args: string[]): Promise<void> {
   if (process.env.VIBE_SESSION === '1') {
     const child = spawn(tool, args, { stdio: 'inherit' });
@@ -35,17 +54,17 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
   }
 
   const cwd = process.cwd();
-  const startedAt = new Date().toISOString();
+  let startedAt = new Date().toISOString();
   // The repo this was launched in, or the repos inside the directory it was
   // launched from. Unlike the Desktop hooks, the wrapper still tracks a
   // directory with no repos at all by wall clock — you invoked it deliberately.
-  const repos = baselineRepos(cwd);
+  let repos = baselineRepos(cwd);
   const hasGit = repos.length > 0;
   const { project, branch } = hasGit
     ? describeRepos(repos, cwd)
     : { project: cwd.split('/').pop() || 'unknown', branch: 'unknown' };
   const config = readConfig();
-  const sessionId = randomUUID();
+  let sessionId: string = randomUUID();
   let lastActivityAt = startedAt;
   let totalGapMs = 0;
   let idleSince = 0;
@@ -99,14 +118,34 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
   // session to finalize.
   const ready: Promise<Session> = (async () => {
     await refreshAndReap().catch(() => {});
-    const initial = snapshot(-1);
-    const session: Session = {
+    let initial = snapshot(-1);
+    let session: Session = {
       id: sessionId, tool, project, branch, startedAt,
       ...initial,
       startSha: repos.length === 1 ? repos[0].startSha : '',
       repos,
     };
-    try { await addSession(session); } catch (e) {
+    try {
+      if (hasGit) {
+        const claimed = await claimSession(session, (open) => sameBranch(open, project, branch, repos));
+        if (claimed.id !== sessionId) {
+          // Adopt the baseline, not just the id: counting from this process's
+          // own start is what let the same commits land twice.
+          sessionId = claimed.id;
+          startedAt = claimed.startedAt;
+          if (claimed.repos?.length) repos = claimed.repos;
+          eventState = { shipEvents: claimed.shipEvents, eventBaseline: claimed.eventBaseline };
+          // Duration is recomputed from startedAt on every snapshot, so the
+          // idle time the earlier process excluded has to carry over.
+          totalGapMs = Math.max(Date.now() - new Date(startedAt).getTime() - claimed.durationSeconds * 1000, 0);
+          initial = snapshot(-1);
+          await updateSession(sessionId, initial);
+          session = { ...claimed, ...initial };
+        }
+      } else {
+        await addSession(session);
+      }
+    } catch (e) {
       console.error(`  vibe: failed to save session — ${e instanceof Error ? e.message : 'unknown error'}`);
     }
     prevCommits = initial.commits;
