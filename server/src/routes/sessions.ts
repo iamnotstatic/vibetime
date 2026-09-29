@@ -27,6 +27,15 @@ interface IncomingSession {
   momentum?: string;
   shipEvents?: string[];
   branchHash: string | null;
+  cliVersion: string | null;
+}
+
+// The version string is attacker-controlled in the same way every header is,
+// so it is matched against a shape rather than trusted: anything else is simply
+// not recorded. Never rejected, for the same reason branchHash is not.
+function parseCliVersion(request: Request): string | null {
+  const v = request.headers.get('x-cli-version');
+  return v && /^\d{1,4}\.\d{1,4}\.\d{1,4}(-[0-9a-z.]{1,20})?$/i.test(v) ? v : null;
 }
 
 function parseSession(raw: unknown): IncomingSession | string {
@@ -58,7 +67,7 @@ function parseSession(raw: unknown): IncomingSession | string {
   const branchHash = typeof s.branchHash === 'string' && /^[0-9a-f]{8,64}$/.test(s.branchHash)
     ? s.branchHash
     : null;
-  return { ...(s as unknown as IncomingSession), branchHash };
+  return { ...(s as unknown as IncomingSession), branchHash, cliVersion: null };
 }
 
 export async function submitSession(request: Request, env: Env): Promise<Response> {
@@ -69,6 +78,7 @@ export async function submitSession(request: Request, env: Env): Promise<Respons
   try { body = await request.json(); } catch { return error(400, 'invalid json'); }
   const parsed = parseSession(body);
   if (typeof parsed === 'string') return error(400, parsed);
+  parsed.cliVersion = parseCliVersion(request);
 
   // Staleness keys on when the session ENDED: long-lived sessions are
   // first-class now that ship events count per day, so a session started
@@ -137,17 +147,20 @@ export async function submitSession(request: Request, env: Env): Promise<Respons
 
   const submittedAt = new Date().toISOString();
   await env.DB.prepare(
-    `INSERT INTO sessions (id, user_github_id, tool, project_hash, branch_hash, started_at, ended_at,
+    `INSERT INTO sessions (id, user_github_id, tool, project_hash, branch_hash, cli_version, started_at, ended_at,
                            duration_seconds, commits, lines_added, lines_removed,
                            files_touched, momentum, submitted_at,
                            event_baseline_commits, event_baseline_lines_added,
                            event_baseline_lines_removed, event_baseline_files)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        tool = excluded.tool,
        project_hash = excluded.project_hash,
        -- A client that stops sending one must not blank what we already have.
        branch_hash = COALESCE(excluded.branch_hash, sessions.branch_hash),
+       -- Last writer wins, so a row reflects the CLI that most recently touched
+       -- it; an upgrade mid-session moves it forward rather than blanking it.
+       cli_version = COALESCE(excluded.cli_version, sessions.cli_version),
        started_at = excluded.started_at,
        ended_at = excluded.ended_at,
        duration_seconds = excluded.duration_seconds,
@@ -166,7 +179,7 @@ export async function submitSession(request: Request, env: Env): Promise<Respons
        event_baseline_files = excluded.event_baseline_files
      WHERE sessions.user_github_id = excluded.user_github_id`,
   ).bind(
-    parsed.id, auth.sub, parsed.tool, parsed.projectHash, parsed.branchHash, parsed.startedAt, parsed.endedAt,
+    parsed.id, auth.sub, parsed.tool, parsed.projectHash, parsed.branchHash, parsed.cliVersion, parsed.startedAt, parsed.endedAt,
     parsed.durationSeconds, parsed.commits, parsed.linesAdded, parsed.linesRemoved,
     parsed.filesTouched, momentum, submittedAt,
     baseline.commits, baseline.linesAdded, baseline.linesRemoved, baseline.filesTouched,
