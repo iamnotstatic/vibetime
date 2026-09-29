@@ -155,6 +155,27 @@ export async function addSession(session: Session): Promise<void> {
   });
 }
 
+// Find-or-insert in one lock, returning whichever session now owns the slot.
+// Two terminals launched at the same instant otherwise both read a file with no
+// open session in it and each inserts its own, which is the duplicate this
+// exists to prevent. Same reasoning as the id guard in addSession: the
+// in-memory check is advisory, the lock is the gate.
+export async function claimSession(
+  session: Session,
+  matches: (open: Session) => boolean,
+): Promise<Session> {
+  return withLock(() => {
+    const data = readDb();
+    const existing = data.sessions
+      .filter((s) => s.exitCode === -1 && matches(s))
+      .sort((a, b) => a.startedAt.localeCompare(b.startedAt))[0];
+    if (existing) return existing;
+    data.sessions.push(session);
+    writeDb(data);
+    return session;
+  });
+}
+
 export async function updateSession(id: string, updates: Partial<Session>): Promise<void> {
   await withLock(() => {
     const data = readDb();
