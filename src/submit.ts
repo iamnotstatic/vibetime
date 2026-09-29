@@ -60,22 +60,44 @@ async function currentAuth(budgetMs: number): Promise<AuthRecord | null> {
   return refreshAuth(auth, Math.min(budgetMs, 3000));
 }
 
-export async function submitInProgress(session: Session, budgetMs = 1500): Promise<void> {
-  if (session.durationSeconds < 60) return;
+// What an in-progress submit is deduplicated on: an unchanged signature has
+// nothing new for the server.
+export function progressSignature(s: Pick<Session, 'commits' | 'linesAdded' | 'linesRemoved' | 'filesTouched' | 'shipEvents'>): string {
+  return `${s.commits}:${s.linesAdded}:${s.linesRemoved}:${s.filesTouched}:${(s.shipEvents ?? []).length}`;
+}
+
+// A 400 is the one failure no resend can change, so it settles the payload
+// the same way an acceptance does.
+function settledBy(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 400;
+}
+
+// True once the server has settled this payload. Callers must only stop
+// resending on true: a timeout, a 5xx, a 429 or a dead token all leave the
+// server without it, and an open session has no other path that sends it.
+export async function submitInProgress(session: Session, budgetMs = 1500): Promise<boolean> {
+  if (session.durationSeconds < 60) return false;
   const auth = await currentAuth(budgetMs);
-  if (!auth) return;
+  if (!auth) return false;
   try {
     await postSession(session, auth, budgetMs);
+    return true;
   } catch (e) {
-    if (!(e instanceof ApiError) || e.status !== 401) return;
+    if (settledBy(e)) return true;
+    if (!(e instanceof ApiError) || e.status !== 401) return false;
     // No refresh token means a pre-0.7 login: drop it so a fresh login retries.
     if (!auth.refreshToken) {
       markSignedOut();
-      return;
+      return false;
     }
     const renewed = await refreshAuth(auth, Math.min(budgetMs, 3000));
-    if (!renewed || renewed.jwt === auth.jwt) return;
-    try { await postSession(session, renewed, budgetMs); } catch {}
+    if (!renewed || renewed.jwt === auth.jwt) return false;
+    try {
+      await postSession(session, renewed, budgetMs);
+      return true;
+    } catch (retry) {
+      return settledBy(retry);
+    }
   }
 }
 

@@ -8,12 +8,15 @@ import { scoreSession, trackShipEvents, type ShipEventState } from './score.js';
 import { renderEndcard, renderSignedOutNotice, renderUpgradeNotice } from './render.js';
 import { needsLogin, commitIdentities } from './auth.js';
 import { reconcileInstall } from './reconcile.js';
-import { flushPendingSubmissions, submitInProgress } from './submit.js';
+import { flushPendingSubmissions, submitInProgress, progressSignature } from './submit.js';
 import { TUNABLES, refreshTunables, recommendedUpgrade } from './remote-config.js';
 import { PURPLE } from './colors.js';
 
 const POLL_INTERVAL_MS = TUNABLES.pollIntervalMs;
 const IN_PROGRESS_SUBMIT_INTERVAL_MS = TUNABLES.inProgressSubmitIntervalMs;
+// The poller sends in the background and nobody waits on it, so it can afford
+// to outlast a slow server instead of mistaking it for a failure.
+const IN_PROGRESS_SUBMIT_BUDGET_MS = 5000;
 
 function reportSpawnError(tool: string, err: NodeJS.ErrnoException): void {
   if (err.code === 'ENOENT') {
@@ -157,7 +160,7 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
 
   // periodic update while the tool runs — track activity for duration accuracy
   let lastInProgressSubmitAt = 0;
-  let lastSubmitSignature = '';
+  let acceptedSignature = '';
   const poll = setInterval(async () => {
     try {
       const session = await ready;
@@ -193,12 +196,16 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
         // otherwise reposts an identical row every 5 minutes forever, and a
         // developer running a dozen sessions at once burned the server's rate
         // guard on nothing, losing the submissions that did matter.
-        const signature = `${snap.commits}:${snap.linesAdded}:${snap.linesRemoved}:${snap.filesTouched}:${(snap.shipEvents ?? []).length}`;
+        // A failed send leaves the signature unaccepted, so the next window
+        // resends it; the throttle alone keeps that from looping.
+        const signature = progressSignature(snap);
         const due = lastInProgressSubmitAt === 0 || Date.now() - lastInProgressSubmitAt >= IN_PROGRESS_SUBMIT_INTERVAL_MS;
-        if (due && signature !== lastSubmitSignature) {
+        if (due && signature !== acceptedSignature) {
           lastInProgressSubmitAt = Date.now();
-          lastSubmitSignature = signature;
-          submitInProgress({ ...session, ...snap }).catch(() => {});
+          submitInProgress({ ...session, ...snap }, IN_PROGRESS_SUBMIT_BUDGET_MS).then(
+            (settled) => { if (settled) acceptedSignature = signature; },
+            () => {},
+          );
         }
       }
     } catch {}
