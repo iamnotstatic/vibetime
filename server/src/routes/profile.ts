@@ -1,6 +1,7 @@
 import type { Env } from '../env.js';
 import { html } from '../http.js';
 import { renderProfile, renderProfileNotFound } from '../views/profile.js';
+import { dayKey, startOfCalendarMonth, startOfCalendarWeek } from '../window.js';
 
 const HEATMAP_DAYS = 7;
 
@@ -32,22 +33,6 @@ export function parseProfileHandle(pathname: string): string | null {
   const raw = pathname.slice(2);
   if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(raw)) return null;
   return raw;
-}
-
-function startOfCalendarMonth(): Date {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-}
-
-function startOfCalendarWeek(): Date {
-  const now = new Date();
-  const day = now.getUTCDay();
-  const diff = day === 0 ? 6 : day - 1;
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - diff));
-}
-
-function dayKey(d: Date): string {
-  return d.toISOString().slice(0, 10);
 }
 
 async function windowStats(
