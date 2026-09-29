@@ -9,8 +9,13 @@ import { execSync, spawnSync } from 'node:child_process';
 // other open session, before it ever used to start the tool. On a repo with
 // dozens of worktrees that was ten-plus seconds of blank terminal before
 // `claude` drew its prompt. None of that work is start-anchored, so the tool
-// must start first and the bookkeeping follow — and a tool that exits before
+// must start first and the bookkeeping follow, and a tool that exits before
 // the bookkeeping lands must still get its session recorded.
+//
+// The git shim and the tool append to one file, so the file IS the order the
+// two actually happened in. An elapsed-milliseconds budget would instead
+// measure how fast the host cold-starts a shell script and a node process,
+// which is why the first version of this test failed on macOS and passed in CI.
 
 const cli = new URL('../dist/cli.js', import.meta.url);
 
@@ -27,12 +32,15 @@ test('the tool starts before git is read, and a fast exit still records the sess
   sh('git -c user.email=vibe@test -c user.name=vibe commit -q --allow-empty -m init', repo);
   const head = sh('git rev-parse HEAD', repo);
 
-  // Every diff read costs a second, so the pre-spawn bookkeeping (the seeded
-  // session's refresh plus this session's first snapshot) is seconds long.
+  // The shim marks each diff read as COMPLETE, after its sleep. Marking the
+  // start instead races: the wrapper issues its first read within a few ms of
+  // the spawn, so which one appends first is a coin flip. What the fix actually
+  // changed is that the tool no longer waits for these to finish.
+  const order = join(dir, 'order.log');
   const bin = join(dir, 'bin');
   mkdirSync(bin);
   const realGit = sh('command -v git');
-  writeFileSync(join(bin, 'git'), `#!/bin/sh\ncase "$*" in *numstat*) sleep 1;; esac\nexec '${realGit}' "$@"\n`);
+  writeFileSync(join(bin, 'git'), `#!/bin/sh\ncase "$*" in *numstat*) sleep 1; echo numstat >> '${order}';; esac\nexec '${realGit}' "$@"\n`);
   chmodSync(join(bin, 'git'), 0o755);
 
   const home = join(dir, 'home');
@@ -48,14 +56,14 @@ test('the tool starts before git is read, and a fast exit still records the sess
   const env = { ...process.env, VIBE_DIR: home, VIBE_API: 'http://127.0.0.1:1', PATH: `${bin}:${process.env.PATH}` };
   delete env.VIBE_SESSION;
 
-  const launchedAt = Date.now();
-  const res = spawnSync(process.execPath, [cli.pathname, '__wrap', process.execPath, '-e', 'console.log("STARTED", Date.now())'], {
+  const tool = `require('fs').appendFileSync(${JSON.stringify(order)}, 'tool\\n')`;
+  const res = spawnSync(process.execPath, [cli.pathname, '__wrap', process.execPath, '-e', tool], {
     cwd: repo, env, encoding: 'utf-8', timeout: 60_000,
   });
   assert.equal(res.status, 0, res.stderr);
 
-  const started = Number(res.stdout.match(/STARTED (\d+)/)?.[1]);
-  assert.ok(started - launchedAt < 1000, `tool started ${started - launchedAt}ms after launch`);
+  const events = readFileSync(order, 'utf-8').trim().split('\n');
+  assert.equal(events[0], 'tool', `the tool waited for git to finish reading the working tree: ${events.slice(0, 3).join(' then ')}`);
 
   const { sessions } = JSON.parse(readFileSync(join(home, 'sessions.json'), 'utf-8'));
   const recorded = sessions.find((s) => s.tool === process.execPath);
