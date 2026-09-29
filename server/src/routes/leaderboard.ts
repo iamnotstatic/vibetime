@@ -1,6 +1,7 @@
 import type { Env } from '../env.js';
 import { html, json } from '../http.js';
 import { renderLeaderboard } from '../views/leaderboard.js';
+import { dayKey, startOfCalendarMonth, startOfCalendarWeek } from '../window.js';
 
 const WINDOWS = {
   week: 7 * 24 * 60 * 60 * 1000,
@@ -55,26 +56,12 @@ function parseWindow(value: string | null): Window {
   return 'week';
 }
 
-function startOfCalendarMonth(): Date {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-}
-
-function startOfCalendarWeek(): Date {
-  const now = new Date();
-  const day = now.getUTCDay();
-  const diff = day === 0 ? 6 : day - 1; // Monday = 0 offset
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - diff));
-}
-
 async function buildData(env: Env, window: Window): Promise<LeaderboardData> {
   const sinceMs = window === 'all' ? 0
     : window === 'month' ? startOfCalendarMonth().getTime()
     : window === 'week' ? startOfCalendarWeek().getTime()
     : Date.now() - WINDOWS[window];
-  // Ship events are keyed by UTC day; the calendar windows start at UTC
-  // midnight, so a plain day-string comparison matches them exactly.
-  const sinceDay = new Date(sinceMs).toISOString().slice(0, 10);
+  const sinceDay = dayKey(new Date(sinceMs));
 
   const totalsRes = await env.DB.prepare(
     `SELECT COUNT(DISTINCT user_github_id) AS dev_count, SUM(ships) AS session_count
@@ -105,7 +92,7 @@ async function buildData(env: Env, window: Window): Promise<LeaderboardData> {
   const rows = topRes.results ?? [];
   if (rows.length === 0) return { entries: [], devCount, sessionCount };
 
-  const heatmapSinceDay = new Date(Date.now() - HEATMAP_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const heatmapSinceDay = dayKey(new Date(Date.now() - HEATMAP_DAYS * 24 * 60 * 60 * 1000));
   const placeholders = rows.map(() => '?').join(',');
   const dailyRes = await env.DB.prepare(
     `SELECT user_github_id, day, SUM(ships) AS n
@@ -126,7 +113,7 @@ async function buildData(env: Env, window: Window): Promise<LeaderboardData> {
   for (let i = HEATMAP_DAYS - 1; i >= 0; i--) {
     const d = new Date(now);
     d.setUTCDate(d.getUTCDate() - i);
-    dayKeys.push(d.toISOString().slice(0, 10));
+    dayKeys.push(dayKey(d));
   }
 
   const entries = rows.map((r, i) => {

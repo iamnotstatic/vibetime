@@ -72,7 +72,7 @@ vibe login</pre>
         const rankClass = e.rank <= 3 ? `rank rank-top` : `rank`;
         return `<tr>
           <td class="${rankClass}">${e.rank}</td>
-          <td class="who"><a href="https://github.com/${handle}" rel="nofollow noopener">${avatar}<span>${handle}</span></a></td>
+          <td class="who"><a href="/@${handle}">${avatar}<span>${handle}</span></a></td>
           <td class="shipped">${e.shippedCount}<span class="days">${e.dayCount} day${e.dayCount === 1 ? '' : 's'}</span></td>
           <td class="activity"><span class="heatmap">${heatmapCells(e.recentDays)}</span></td>
           <td class="last">${escapeHtml(relativeTime(e.lastShippedAt, updatedAt))}</td>
