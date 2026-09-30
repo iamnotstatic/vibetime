@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, renameSync, mkdirSync, rmdirSync, unlinkSy
 import { VIBE_DIR, ensureVibeDir, readConfig } from './config.js';
 import { TUNABLES } from './remote-config.js';
 import { scoreReaped, type MomentumTier } from './score.js';
-import type { RepoBaseline } from './git.js';
+import { sumWork, type RepoBaseline, type RepoWork, type GitDiffStats } from './git.js';
 
 export interface Session {
   id: string;
@@ -53,6 +53,10 @@ export interface Session {
   // Deliberately not `lastProgressSignature`: older CLIs saved that before
   // sending, so it can name a payload the server never received.
   acceptedProgressSignature?: string;
+  // Commits this session has been credited with, as `sha key` (see CommitWork).
+  // Local only, never submitted: it exists so no other session on this machine
+  // can be credited with the same commit.
+  credited?: string[];
 }
 
 interface DbSchema {
@@ -119,6 +123,26 @@ async function withLock<T>(fn: () => T): Promise<T> {
   }
 
   // fallback: run without lock rather than lose data
+  return fn();
+}
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+// For callers that measure synchronously, like the wrapper's snapshot. Same
+// lock, same fallback.
+function withLockSync<T>(fn: () => T): T {
+  for (let i = 0; i < 20; i++) {
+    if (acquireLock()) {
+      try {
+        return fn();
+      } finally {
+        releaseLock();
+      }
+    }
+    sleepSync(5);
+  }
   return fn();
 }
 
@@ -235,5 +259,117 @@ export async function reapOrphanedSessions(): Promise<void> {
     }
 
     if (changed) writeDb(data);
+  });
+}
+
+// A claim this old can't collide with anything still being measured, and
+// sessions are kept forever, so dropping it keeps sessions.json from growing
+// by every commit ever made.
+const CREDIT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+type Contender = Pick<Session, 'id' | 'startedAt' | 'repos'>;
+
+const homes = (s: Contender): string[] => (s.repos ?? []).map((r) => r.path);
+const knownCheckouts = (s: Contender): string[] =>
+  (s.repos ?? []).flatMap((r) => [r.path, ...(r.worktrees ?? []).map((t) => t.path)]);
+const newest = (list: Contender[]): Contender | undefined =>
+  [...list].sort((a, b) => b.startedAt.localeCompare(a.startedAt) || a.id.localeCompare(b.id))[0];
+
+// Credits this session with the work in its repos that no other session on
+// this machine has, and returns the stats of what it was credited.
+//
+// Every open session watches every checkout of its repos, so without this a
+// commit made in one worktree is also counted by the session in the main
+// checkout and by every sibling worktree's session, and two editor windows on
+// one branch each count the other's commits. One commit, one session, is the
+// only unit that credits the effort once however the sessions overlap.
+//
+// A commit goes to the first session to claim it, and stays there. Only a
+// checkout's owner may claim what its tip reaches: the newest open session
+// started in it, or failing that the newest open session watching the repo.
+// That keeps a worktree's commits with the session working in it rather than
+// whichever sibling happened to poll first. Newest, because an editor window
+// left open for days is still an open session, and the one just started in
+// that checkout is the one doing the work its endcard should show. Uncommitted
+// work follows the same ownership, since it too sits in exactly one checkout.
+export function creditWork(session: Contender, work: RepoWork[]): GitDiffStats {
+  return withLockSync(() => {
+    const data = readDb();
+    const now = Date.now();
+    const cutoff = now - CREDIT_RETENTION_MS;
+    let changed = false;
+
+    const takenShas = new Set<string>();
+    const takenKeys = new Map<string, string[]>();
+    for (const other of data.sessions) {
+      if (!Array.isArray(other.credited)) continue;
+      if (other.exitCode !== -1 && Date.parse(other.endedAt) < cutoff) {
+        delete other.credited;
+        changed = true;
+        continue;
+      }
+      if (other.id === session.id) continue;
+      for (const entry of other.credited) {
+        const [sha, ...key] = String(entry).split(' ');
+        takenShas.add(sha);
+        const k = key.join(' ');
+        takenKeys.set(k, [...(takenKeys.get(k) ?? []), sha]);
+      }
+    }
+
+    const self = data.sessions.find((s) => s.id === session.id);
+    const ownShas = new Set((Array.isArray(self?.credited) ? self.credited : []).map((e) => String(e).split(' ')[0]));
+    const contenders = [
+      ...data.sessions.filter((s) => s.exitCode === -1 && s.id !== session.id),
+      session,
+    ];
+    const ownsCheckout = (path: string, repoCheckouts: string[]): boolean => {
+      const homed = contenders.filter((s) => homes(s).includes(path));
+      const owner = newest(homed.length ? homed : contenders.filter((s) => knownCheckouts(s).some((p) => repoCheckouts.includes(p))));
+      return !owner || owner.id === session.id;
+    };
+
+    const credited = new Set<string>();
+    const claimed: string[] = [];
+    for (const repo of work) {
+      const inRange = new Set(repo.commits.map((c) => c.sha));
+      // A key another session holds for a sha no longer in range is a
+      // rewritten copy of its commit. Two distinct commits can share an author
+      // second, so each held key excuses only as many commits as it was held for.
+      const rewrittenLeft = new Map<string, number>();
+      for (const [k, shas] of takenKeys) rewrittenLeft.set(k, shas.filter((sha) => !inRange.has(sha)).length);
+
+      for (const commit of repo.commits) {
+        if (ownShas.has(commit.sha)) {
+          credited.add(commit.sha);
+          continue;
+        }
+        if (takenShas.has(commit.sha)) continue;
+        const left = rewrittenLeft.get(commit.key) ?? 0;
+        if (left > 0) {
+          rewrittenLeft.set(commit.key, left - 1);
+          continue;
+        }
+        if (!commit.checkouts.some((p) => ownsCheckout(p, repo.checkouts))) continue;
+        credited.add(commit.sha);
+        claimed.push(`${commit.sha} ${commit.key}`);
+      }
+    }
+
+    if (self && claimed.length) {
+      self.credited = [...(Array.isArray(self.credited) ? self.credited : []), ...claimed];
+      changed = true;
+    }
+    // Measuring must never fail on account of the ledger. Claims that could not
+    // be written are made again on the next measure, which is all they need.
+    if (changed) {
+      try { writeDb(data); } catch {}
+    }
+
+    return sumWork(
+      work,
+      (c) => credited.has(c.sha),
+      (path) => ownsCheckout(path, work.find((r) => r.checkouts.includes(path))?.checkouts ?? []),
+    );
   });
 }

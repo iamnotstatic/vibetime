@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
-import { addSession, updateSession, getSessions, INACTIVITY_TIMEOUT_MS, type Session } from './db.js';
-import { isGitRepo, getHeadSha, getDiffStats, getReposDiffStats, baselineRepos, describeRepos, type GitDiffStats } from './git.js';
+import { addSession, updateSession, getSessions, creditWork, INACTIVITY_TIMEOUT_MS, type Session } from './db.js';
+import { isGitRepo, getHeadSha, getDiffStats, measureRepos, baselineRepos, describeRepos, type GitDiffStats } from './git.js';
 import { refreshAndReap } from './rescore.js';
 import { readConfig } from './config.js';
 import { scoreSession, trackShipEvents } from './score.js';
@@ -84,7 +84,7 @@ function activeSecondsSince(lastActivityAt: string | undefined, startedAt: strin
 function diffFor(session: Session, cwd: string): GitDiffStats | null {
   if (session.repos?.length) {
     const alive = session.repos.filter((r) => existsSync(r.path));
-    return alive.length ? getReposDiffStats(alive, commitIdentities()) : null;
+    return alive.length ? creditWork(session, measureRepos(alive, commitIdentities())) : null;
   }
   // Fallback for sessions opened by an older CLI, which recorded a single
   // baseline sha against the session cwd.
