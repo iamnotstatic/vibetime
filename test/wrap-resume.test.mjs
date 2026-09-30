@@ -141,3 +141,47 @@ test('two repos sharing a directory name keep separate sessions', async (t) => {
 
   await new Promise((r) => held.on('close', r));
 });
+
+test('a launch that fails to start leaves the running session alone', async (t) => {
+  const { dir, repo, home, env } = setup();
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+
+  const held = spawn(process.execPath, [cli.pathname, '__wrap', process.execPath, '-e', 'setTimeout(() => {}, 4000)'], {
+    cwd: repo, env, stdio: 'ignore',
+  });
+  await new Promise((r) => setTimeout(r, 1500));
+  const [running] = sessionsIn(home);
+
+  // The failed launch adopts the running session before its spawn error
+  // arrives, and cleaning up after itself must not reach into that one.
+  spawnSync(process.execPath, [cli.pathname, '__wrap', 'vibe-no-such-tool'], { cwd: repo, env, encoding: 'utf-8', timeout: 60_000 });
+  assert.deepEqual(sessionsIn(home).map((s) => [s.id, s.exitCode]), [[running.id, -1]], 'the running session is intact and still open');
+
+  await new Promise((r) => held.on('close', r));
+  assert.deepEqual(sessionsIn(home).map((s) => [s.id, s.exitCode]), [[running.id, 0]]);
+});
+
+test('a session ended elsewhere while still running resends when it exits', async (t) => {
+  const { dir, repo, home, env } = setup();
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(home, 'remote-config.json'), JSON.stringify({ pollIntervalMs: 5000, fetchedAt: new Date().toISOString() }));
+
+  const held = spawn(process.execPath, [cli.pathname, '__wrap', process.execPath, '-e', 'setTimeout(() => {}, 9000)'], {
+    cwd: repo, env, stdio: 'ignore',
+  });
+  await new Promise((r) => setTimeout(r, 1500));
+
+  // What the other terminal on a shared session leaves behind when it exits
+  // first, or the reaper after a long idle: ended, flushed, marked submitted.
+  const path = join(home, 'sessions.json');
+  const data = JSON.parse(readFileSync(path, 'utf-8'));
+  Object.assign(data.sessions[0], { exitCode: 0, submittedAt: new Date().toISOString() });
+  writeFileSync(path, JSON.stringify(data));
+
+  commit(repo, 'after.txt');
+  await new Promise((r) => held.on('close', r));
+
+  const [final] = sessionsIn(home);
+  assert.equal(final.commits, 1, 'the work after the other exit is recorded');
+  assert.equal(final.submittedAt, undefined, 'and is still waiting to be sent, not marked as already sent');
+});
