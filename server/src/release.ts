@@ -3,6 +3,6 @@
 // version it was written for, so a stale one can never describe a newer
 // release. Keep it short, plain ASCII, and about what changes for the user.
 export const CLI_RECOMMENDED = {
-  version: '0.14.0',
-  reason: 'fixes double-counted ships',
+  version: '0.14.1',
+  reason: 'fixes a stuck submit queue',
 };
