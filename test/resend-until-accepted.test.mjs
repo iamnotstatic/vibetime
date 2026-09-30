@@ -61,8 +61,11 @@ function shippedRepo(t) {
   return repo;
 }
 
+// Unique per call: two repos given identical commits in the same second hold
+// the same commit object, sha and all, and a commit is credited only once.
 function commitWork(repo) {
-  writeFileSync(join(repo, 'work.txt'), Array.from({ length: 80 }, (_, i) => `line ${i}`).join('\n') + '\n');
+  const tag = randomUUID();
+  writeFileSync(join(repo, 'work.txt'), Array.from({ length: 80 }, (_, i) => `${tag} ${i}`).join('\n') + '\n');
   sh('git add work.txt', repo);
   sh('git commit -q -m work', repo);
 }

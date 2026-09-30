@@ -292,19 +292,43 @@ export function getDiffStats(fromSha: string, toSha: string, cwd?: string): GitD
   return { commits, linesAdded, linesRemoved, filesTouched: allFiles.size };
 }
 
-interface CommittedStats {
-  commits: number;
+// One commit a session could be credited with. `key` is the author and author
+// time, which a rebase, amend or cherry-pick keeps while the sha changes, so a
+// rewritten commit can still be recognised as work already credited.
+// `checkouts` are the checkouts whose tip reaches it, which is how a commit
+// made in one worktree is told apart from one merely visible from a sibling.
+// `committedAt` is when it landed in this repo, in ms.
+export interface CommitWork {
+  sha: string;
+  key: string;
+  committedAt: number;
   linesAdded: number;
   linesRemoved: number;
-  files: Set<string>;
+  files: string[];
+  checkouts: string[];
 }
 
-// Committed work across every checkout of one repo, counted once. Asking for the
-// commits reachable from any current tip but from no baseline is what makes a
-// worktree count: its commits never move the main checkout's HEAD, but they are
-// reachable from the worktree's tip and from no baseline. Merging that worktree
-// back mid-session doesn't double count either — the commits land in the same
-// reachability set whether one tip or two can see them.
+export interface CheckoutWork {
+  path: string;
+  linesAdded: number;
+  linesRemoved: number;
+  files: string[];
+}
+
+export interface RepoWork {
+  checkouts: string[];
+  commits: CommitWork[];
+  uncommitted: CheckoutWork[];
+}
+
+// Committed work across every checkout of one repo, one entry per commit.
+// Asking for the commits reachable from any current tip but from no baseline
+// is what makes a worktree count: its commits never move the main checkout's
+// HEAD, but they are reachable from the worktree's tip and from no baseline.
+// Merging that worktree back mid-session doesn't double count either, since a
+// commit is listed once however many tips can see it. Merge commits report no
+// numstat, so merged work is counted where it was written.
+//
 // Filter only when both halves of the identity are in hand: the account's
 // noreply forms, which need a login, and the address this repo commits under.
 // Either one missing means we cannot recognise your own work, and counting none
@@ -320,48 +344,80 @@ function authorArgs(identities: string[], repoPath: string): string[] {
   return ['--fixed-strings', ...all.map((email) => `--author=<${email}>`)];
 }
 
-function committedStats(checkouts: { path: string; head: string; startSha: string }[], repoPath: string, identities: string[]): CommittedStats {
+function repoCommits(checkouts: { path: string; head: string; startSha: string }[], repoPath: string, identities: string[]): CommitWork[] {
   const bases = [...new Set(checkouts.map((c) => c.startSha).filter(isSha))];
   const tips = [...new Set(checkouts.map((c) => c.head).filter(isSha))].filter((t) => !bases.includes(t));
-  if (bases.length === 0 || tips.length === 0) {
-    return { commits: 0, linesAdded: 0, linesRemoved: 0, files: new Set() };
+  if (bases.length === 0 || tips.length === 0) return [];
+
+  const exclude = bases.map((b) => `^${b}`);
+  const authors = authorArgs(identities, repoPath);
+  const reach = new Map<string, string[]>();
+  for (const tip of tips) {
+    const paths = checkouts.filter((c) => c.head === tip).map((c) => c.path);
+    for (const sha of runGit(['rev-list', ...authors, ...exclude, tip], repoPath).split('\n').filter(Boolean)) {
+      reach.set(sha, [...(reach.get(sha) ?? []), ...paths]);
+    }
   }
 
-  const range = [...bases.map((b) => `^${b}`), ...tips];
-  const authors = authorArgs(identities, repoPath);
-  const commits = parseInt(runGit(['rev-list', '--count', ...authors, ...range], repoPath), 10) || 0;
-  // Per-commit numstat rather than a net range diff: a range diff needs a single
-  // tip, and summing one per tip would count shared history twice. Merge commits
-  // report no numstat, so merged work is counted where it was written.
-  const { added, removed, files } = parseNumstat(runGit(['log', '--format=', '--numstat', ...authors, ...range], repoPath));
-  return { commits, linesAdded: added, linesRemoved: removed, files };
+  const commits: CommitWork[] = [];
+  const log = runGit(['log', '--format=%x00%H %at %ae %ct', '--numstat', ...authors, ...exclude, ...tips], repoPath);
+  for (const entry of log.split('\0').filter(Boolean)) {
+    const [header, ...numstat] = entry.split('\n');
+    const [sha, at, authorEmail, ct] = header.split(' ');
+    if (!isSha(sha)) continue;
+    const { added, removed, files } = parseNumstat(numstat.join('\n'));
+    commits.push({
+      sha, key: `${at} ${authorEmail}`, committedAt: (parseInt(ct, 10) || 0) * 1000,
+      linesAdded: added, linesRemoved: removed, files: [...files],
+      checkouts: reach.get(sha) ?? [],
+    });
+  }
+  return commits;
 }
 
-// Stats for every repo the session watches, summed. Files are counted per repo
-// and added up — two repos can hold the same relative path without it being the
-// same file, so there is nothing to de-duplicate across them.
-export function getReposDiffStats(repos: RepoBaseline[], identities: string[] = []): GitDiffStats {
-  const total: GitDiffStats = { commits: 0, linesAdded: 0, linesRemoved: 0, filesTouched: 0 };
-  for (const repo of repos) {
+// Everything a session's repos hold right now, before any of it is credited.
+export function measureRepos(repos: RepoBaseline[], identities: string[] = []): RepoWork[] {
+  return repos.map((repo) => {
     const checkouts = checkoutsOf(repo);
-    const committed = committedStats(checkouts, repo.path, identities);
-    let linesAdded = committed.linesAdded;
-    let linesRemoved = committed.linesRemoved;
-    // A file already touched by a commit this session can also be sitting
-    // uncommitted right now — union rather than sum so it isn't counted twice.
-    // Uncommitted work itself lives in one working tree at a time, so no
-    // checkout can overlap another there.
-    const files = new Set(committed.files);
-    for (const checkout of checkouts) {
-      const uncommitted = uncommittedStats(checkout.path, checkout.head);
-      linesAdded += uncommitted.added;
-      linesRemoved += uncommitted.removed;
-      for (const f of uncommitted.files) files.add(f);
+    return {
+      checkouts: checkouts.map((c) => c.path),
+      commits: repoCommits(checkouts, repo.path, identities),
+      uncommitted: checkouts.map((c) => {
+        const { added, removed, files } = uncommittedStats(c.path, c.head);
+        return { path: c.path, linesAdded: added, linesRemoved: removed, files: [...files] };
+      }),
+    };
+  });
+}
+
+// Files are counted per repo and added up: two repos can hold the same relative
+// path without it being the same file, so there is nothing to de-duplicate
+// across them. Within a repo, a file already touched by a commit can also be
+// sitting uncommitted right now, so it is a union rather than a sum.
+export function sumWork(
+  work: RepoWork[],
+  credits: (commit: CommitWork) => boolean = () => true,
+  counts: (checkout: string) => boolean = () => true,
+): GitDiffStats {
+  const total: GitDiffStats = { commits: 0, linesAdded: 0, linesRemoved: 0, filesTouched: 0 };
+  for (const repo of work) {
+    const files = new Set<string>();
+    for (const commit of repo.commits.filter(credits)) {
+      total.commits += 1;
+      total.linesAdded += commit.linesAdded;
+      total.linesRemoved += commit.linesRemoved;
+      for (const f of commit.files) files.add(f);
     }
-    total.commits += committed.commits;
-    total.linesAdded += linesAdded;
-    total.linesRemoved += linesRemoved;
+    for (const tree of repo.uncommitted.filter((u) => counts(u.path))) {
+      total.linesAdded += tree.linesAdded;
+      total.linesRemoved += tree.linesRemoved;
+      for (const f of tree.files) files.add(f);
+    }
     total.filesTouched += files.size;
   }
   return total;
+}
+
+export function getReposDiffStats(repos: RepoBaseline[], identities: string[] = []): GitDiffStats {
+  return sumWork(measureRepos(repos, identities));
 }

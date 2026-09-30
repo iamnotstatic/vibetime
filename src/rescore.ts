@@ -1,5 +1,5 @@
-import { getSessions, updateSession, reapOrphanedSessions, INACTIVITY_TIMEOUT_MS, type Session } from './db.js';
-import { getReposDiffStats } from './git.js';
+import { getSessions, updateSession, reapOrphanedSessions, creditWork, INACTIVITY_TIMEOUT_MS, type Session } from './db.js';
+import { measureRepos } from './git.js';
 import { readConfig } from './config.js';
 import { commitIdentities } from './auth.js';
 import { scoreSession, scoreReaped, trackShipEvents } from './score.js';
@@ -63,7 +63,7 @@ export async function refreshRecentSessions(): Promise<void> {
       if (ownedByAnotherSession(session, all)) continue;
     }
 
-    const stats = getReposDiffStats(session.repos, identities);
+    const stats = creditWork(session, measureRepos(session.repos, identities));
     if (!statsChanged(session, stats)) continue;
 
     await updateSession(session.id, {

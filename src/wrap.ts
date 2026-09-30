@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { addSession, claimSession, updateSession, deleteSession, INACTIVITY_TIMEOUT_MS, type Session } from './db.js';
-import { baselineRepos, describeRepos, getReposDiffStats, getReposFingerprint, type RepoBaseline } from './git.js';
+import { addSession, claimSession, creditWork, updateSession, deleteSession, INACTIVITY_TIMEOUT_MS, type Session } from './db.js';
+import { baselineRepos, describeRepos, measureRepos, getReposFingerprint, type RepoBaseline } from './git.js';
 import { refreshAndReap } from './rescore.js';
 import { readConfig } from './config.js';
 import { scoreSession, trackShipEvents, type ShipEventState } from './score.js';
@@ -94,7 +94,7 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
 
     let diffStats = { commits: 0, linesAdded: 0, linesRemoved: 0, filesTouched: 0 };
     if (hasGit) {
-      diffStats = getReposDiffStats(repos, commitIdentities());
+      diffStats = creditWork({ id: sessionId, startedAt, repos }, measureRepos(repos, commitIdentities()));
     }
     const momentum = scoreSession({ ...diffStats, exitCode }, config);
     const tracked = trackShipEvents(eventState, diffStats, config, endMs);
