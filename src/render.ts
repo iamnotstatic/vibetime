@@ -140,8 +140,8 @@ export function renderSignedOutNotice(): string {
 // Printed after the endcard and under every command that already prints. The
 // endcard alone reaches nobody who only uses the desktop apps: their sessions
 // run through hooks, whose stdout belongs to the editor.
-export function renderUpgradeNotice(version: string): string {
-  return `  ${PURPLE('◆')} vibe ${version} available · run ${PURPLE('npm i -g vibetime-cli')}\n`;
+export function renderUpgradeNotice(version: string, reason: string | null = null): string {
+  return `  ${PURPLE('◆')} vibe ${version} available · ${reason ? `${reason} · ` : ''}run ${PURPLE('npm i -g vibetime-cli')}\n`;
 }
 
 // Offered right after setup, because signing in is the one step nobody

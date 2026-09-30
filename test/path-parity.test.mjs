@@ -26,6 +26,7 @@ const ALLOWED = {
     // belongs to the editor, so a desktop user is reached through `vibe status`,
     // `log` and `leaderboard` instead, which is the whole point of #68.
     recommendedUpgrade: 'the hook path has no stdout a user ever reads',
+    recommendedUpgradeReason: 'printed beside recommendedUpgrade, so it has the same reach',
   },
 };
 

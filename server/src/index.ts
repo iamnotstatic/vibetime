@@ -6,9 +6,7 @@ import { parseProfileHandle, profileHtml } from './routes/profile.js';
 import { clientConfig } from './routes/config.js';
 import { faviconResponse } from './views/favicon.js';
 import { error } from './http.js';
-
-// bump this when a new CLI release should be recommended to clients
-const CLI_RECOMMENDED_VERSION = '0.13.1';
+import { CLI_RECOMMENDED } from './release.js';
 
 const CORS_HEADERS = {
   'access-control-allow-origin': '*',
@@ -20,7 +18,7 @@ const CORS_HEADERS = {
 function withCors(res: Response): Response {
   const headers = new Headers(res.headers);
   for (const [k, v] of Object.entries(CORS_HEADERS)) headers.set(k, v);
-  headers.set('x-cli-recommended-version', CLI_RECOMMENDED_VERSION);
+  headers.set('x-cli-recommended-version', CLI_RECOMMENDED.version);
   return new Response(res.body, { status: res.status, headers });
 }
 

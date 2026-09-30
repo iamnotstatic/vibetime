@@ -9,7 +9,7 @@ import { renderEndcard, renderSignedOutNotice, renderUpgradeNotice } from './ren
 import { needsLogin, commitIdentities } from './auth.js';
 import { reconcileInstall } from './reconcile.js';
 import { flushPendingSubmissions, submitInProgress, progressSignature } from './submit.js';
-import { TUNABLES, refreshTunables, recommendedUpgrade } from './remote-config.js';
+import { TUNABLES, refreshTunables, recommendedUpgrade, recommendedUpgradeReason } from './remote-config.js';
 import { PURPLE } from './colors.js';
 
 const POLL_INTERVAL_MS = TUNABLES.pollIntervalMs;
@@ -245,7 +245,7 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
       // After the flush, so a renewal that just succeeded doesn't nag.
       if (needsLogin()) console.log(renderSignedOutNotice());
       const upgrade = recommendedUpgrade();
-      if (upgrade) console.log(renderUpgradeNotice(upgrade));
+      if (upgrade) console.log(renderUpgradeNotice(upgrade, recommendedUpgradeReason(upgrade)));
     }
     process.exit(exitCode);
   }

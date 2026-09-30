@@ -5,7 +5,7 @@ import { getSessions } from './db.js';
 import { refreshAndReap } from './rescore.js';
 import { readConfig, writeConfig, addTool, removeTool, setInstallOptOut } from './config.js';
 import { renderStatus, renderLog, renderLeaderboard, renderUpgradeNotice } from './render.js';
-import { recommendedUpgrade } from './remote-config.js';
+import { recommendedUpgrade, recommendedUpgradeReason } from './remote-config.js';
 import { renderTerminalCard, writeHtmlCard } from './share.js';
 import { wrapTool } from './wrap.js';
 import { initShellHooks, removeShellHooks } from './init.js';
@@ -86,7 +86,7 @@ async function showStatus(): Promise<void> {
 // have, so the nudge rides on all of them rather than the endcard alone.
 function printUpgradeNotice(): void {
   const upgrade = recommendedUpgrade();
-  if (upgrade) console.log(renderUpgradeNotice(upgrade));
+  if (upgrade) console.log(renderUpgradeNotice(upgrade, recommendedUpgradeReason(upgrade)));
 }
 
 // Bare `vibe` is the first thing anyone types after installing, and npm hides

@@ -30,6 +30,22 @@ const CLAMPS: Record<keyof Tunables, [number, number]> = {
 const CACHE_PATH = join(VIBE_DIR, 'remote-config.json');
 const STALE_AFTER_MS = 6 * 60 * 60 * 1000;
 
+interface UpgradeReason {
+  version: string;
+  reason: string;
+}
+
+// Server text headed for someone's terminal: printable characters only, so a
+// bad deploy or a tampered response cannot move the cursor, recolour the
+// endcard or clear the screen, and short enough to stay one line.
+function upgradeReason(value: unknown): UpgradeReason | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const { version, reason } = value as Record<string, unknown>;
+  if (typeof version !== 'string' || typeof reason !== 'string') return undefined;
+  const clean = reason.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60).trim();
+  return clean ? { version, reason: clean } : undefined;
+}
+
 function clamp(key: keyof Tunables, value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULTS[key];
   const [lo, hi] = CLAMPS[key];
@@ -42,16 +58,17 @@ function clamp(key: keyof Tunables, value: unknown): number {
 // below does the network, and a hook may only call it where the event's
 // timeout allows (session-start and activity get 10s, but codex caps
 // session-end at 3s, so that path stays local).
-function load(): Tunables & { fetchedAt?: string; recommendedVersion?: string } {
+function load(): Tunables & { fetchedAt?: string; recommendedVersion?: string; recommended?: UpgradeReason } {
   if (!existsSync(CACHE_PATH)) return { ...DEFAULTS };
   try {
-    const raw = JSON.parse(readFileSync(CACHE_PATH, 'utf-8')) as Partial<Tunables> & { fetchedAt?: string; recommendedVersion?: string };
+    const raw = JSON.parse(readFileSync(CACHE_PATH, 'utf-8')) as Partial<Tunables> & { fetchedAt?: string; recommendedVersion?: string; recommended?: unknown };
     return {
       pollIntervalMs: clamp('pollIntervalMs', raw.pollIntervalMs),
       inProgressSubmitIntervalMs: clamp('inProgressSubmitIntervalMs', raw.inProgressSubmitIntervalMs),
       inactivityTimeoutMs: clamp('inactivityTimeoutMs', raw.inactivityTimeoutMs),
       fetchedAt: raw.fetchedAt,
       recommendedVersion: typeof raw.recommendedVersion === 'string' ? raw.recommendedVersion : undefined,
+      recommended: upgradeReason(raw.recommended),
     };
   } catch {
     return { ...DEFAULTS };
@@ -73,7 +90,7 @@ export const TUNABLES: Tunables = {
 export async function refreshTunables(timeoutMs = 3000): Promise<void> {
   if (loaded.fetchedAt && Date.now() - Date.parse(loaded.fetchedAt) < STALE_AFTER_MS) return;
   try {
-    const fetched = await request<Partial<Tunables>>('/config', { timeoutMs });
+    const fetched = await request<Partial<Tunables> & { recommended?: unknown }>('/config', { timeoutMs });
     // Persisted so a process that made no request can still report it: the
     // header only reaches whoever called the server, and on the desktop path
     // that is a hook whose stdout belongs to the editor.
@@ -83,6 +100,7 @@ export async function refreshTunables(timeoutMs = 3000): Promise<void> {
     // knew, and the nudge would go quiet until some later refresh restored it.
     // Keeping it is safe because recommendedUpgrade compares on read.
     const recommendedVersion = getRecommendedVersion() ?? loaded.recommendedVersion;
+    const recommended = upgradeReason(fetched.recommended) ?? loaded.recommended;
     ensureVibeDir();
     writeFileSync(CACHE_PATH, JSON.stringify({
       pollIntervalMs: clamp('pollIntervalMs', fetched.pollIntervalMs),
@@ -90,6 +108,7 @@ export async function refreshTunables(timeoutMs = 3000): Promise<void> {
       inactivityTimeoutMs: clamp('inactivityTimeoutMs', fetched.inactivityTimeoutMs),
       fetchedAt: new Date().toISOString(),
       ...(recommendedVersion ? { recommendedVersion } : {}),
+      ...(recommended ? { recommended } : {}),
     }, null, 2) + '\n');
   } catch {}
 }
@@ -106,4 +125,10 @@ export function recommendedUpgrade(): string | null {
   if (live) return live;
   const stored = loaded.recommendedVersion;
   return stored && isNewerVersion(stored, CLI_VERSION) ? stored : null;
+}
+
+// Why the recommended version is worth installing, when the server said so for
+// that exact version. A reason is dropped rather than moved onto a newer one.
+export function recommendedUpgradeReason(version: string): string | null {
+  return loaded.recommended?.version === version ? loaded.recommended.reason : null;
 }

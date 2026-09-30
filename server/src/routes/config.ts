@@ -1,4 +1,5 @@
 import { json } from '../http.js';
+import { CLI_RECOMMENDED } from '../release.js';
 
 // Client tunables. The CLI ships baked-in copies of these values and treats
 // this endpoint as an override, clamped to sane ranges on the client, so a
@@ -14,8 +15,11 @@ const CLIENT_TUNABLES = {
   inactivityTimeoutMs: 30 * 60 * 1000,
 };
 
+// The header names the version on every response; only this body can say why.
+// Older CLIs read the tunables by name and ignore this.
 export function clientConfig(): Response {
-  return json(CLIENT_TUNABLES, {
+  const { version, reason } = CLI_RECOMMENDED;
+  return json({ ...CLIENT_TUNABLES, ...(reason ? { recommended: { version, reason } } : {}) }, {
     headers: { 'cache-control': 'public, max-age=300' },
   });
 }
