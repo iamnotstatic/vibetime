@@ -3,6 +3,7 @@ import { error, json } from '../http.js';
 import { requireAuth } from '../auth-middleware.js';
 import { checkAndRecord } from '../ratelimit.js';
 import { scoreSession, clampBaseline, earnsEvents, type Stats } from '../score.js';
+import { commitKeyFor, COMMIT_KEY_VERSION } from '../commit-key.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VALID_TIERS = new Set(['shipped', 'progressed', 'tinkering', 'exploring', 'idle', 'interrupted']);
@@ -12,6 +13,17 @@ const MIN_DURATION_S = 60;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_SHIP_EVENTS = 62;
 const DAY_SLACK_MS = 24 * 60 * 60 * 1000;
+const MAX_COMMIT_FACTS = 500;
+const HEX32_RE = /^[0-9a-f]{32}$/;
+
+interface CommitFact {
+  id: string;
+  authorId: string;
+  committedAt: number;
+  linesAdded: number;
+  linesRemoved: number;
+  files: number;
+}
 
 interface IncomingSession {
   id: string;
@@ -28,6 +40,7 @@ interface IncomingSession {
   shipEvents?: string[];
   branchHash: string | null;
   cliVersion: string | null;
+  commitFacts: CommitFact[] | null;
 }
 
 // The version string is attacker-controlled in the same way every header is,
@@ -67,23 +80,64 @@ function parseSession(raw: unknown): IncomingSession | string {
   const branchHash = typeof s.branchHash === 'string' && /^[0-9a-f]{8,64}$/.test(s.branchHash)
     ? s.branchHash
     : null;
-  return { ...(s as unknown as IncomingSession), branchHash, cliVersion: null };
+  return { ...(s as unknown as IncomingSession), branchHash, cliVersion: null, commitFacts: parseCommitFacts(s) };
 }
 
-// 0.14.0 credits each commit to one session on the machine, so from there on a
-// duplicate never reaches the server as one.
-function hasCommitLedger(cliVersion: string | null): boolean {
-  if (!cliVersion) return false;
-  const [major = 0, minor = 0] = cliVersion.split('.').map((n) => parseInt(n, 10) || 0);
-  return major > 0 || minor >= 14;
+const count = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
+
+// All or nothing, and never a 400: a malformed list is dropped and the session
+// is scored on its totals, exactly as if the client had sent none.
+function parseCommitFacts(s: Record<string, unknown>): CommitFact[] | null {
+  if (s.commitKeyVersion !== COMMIT_KEY_VERSION || !Array.isArray(s.commitFacts)) return null;
+  if (s.commitFacts.length === 0 || s.commitFacts.length > MAX_COMMIT_FACTS) return null;
+  const facts: CommitFact[] = [];
+  for (const raw of s.commitFacts) {
+    if (typeof raw !== 'object' || raw === null) return null;
+    const f = raw as Record<string, unknown>;
+    if (typeof f.id !== 'string' || !HEX32_RE.test(f.id)) return null;
+    if (typeof f.authorId !== 'string' || !HEX32_RE.test(f.authorId)) return null;
+    if (!count(f.committedAt) || !count(f.linesAdded) || !count(f.linesRemoved) || !count(f.files)) return null;
+    facts.push({ id: f.id, authorId: f.authorId, committedAt: f.committedAt, linesAdded: f.linesAdded, linesRemoved: f.linesRemoved, files: f.files });
+  }
+  return facts;
 }
 
-// Before the ledger, every session watching a repo counted every commit it
-// could see, so overlapping sessions reported the same work and each was paid
-// for it. Such a duplicate arrives as a state another session was already paid
-// for: the same user and project, overlapping in time, with an event baseline
-// equal to these exact stats. Real parallel work on different commits does not
-// produce four identical numbers.
+// The first session to report a commit owns it, from any machine. Returns what
+// this session reported that another one already owns, to be taken out of its
+// totals, or null when the facts could not be recorded: a failure here must
+// leave the submit scored exactly as it was before commit facts existed.
+async function creditedElsewhere(env: Env, uid: number, sessionId: string, facts: CommitFact[]): Promise<Stats | null> {
+  try {
+    const list = JSON.stringify(facts);
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO commit_credits
+         (user_github_id, commit_id, author_id, session_id, committed_at, lines_added, lines_removed, files, credited_at)
+       SELECT ?1, json_extract(value, '$.id'), json_extract(value, '$.authorId'), ?2,
+              json_extract(value, '$.committedAt'), json_extract(value, '$.linesAdded'),
+              json_extract(value, '$.linesRemoved'), json_extract(value, '$.files'), ?3
+         FROM json_each(?4)`,
+    ).bind(uid, sessionId, new Date().toISOString(), list).run();
+    const dup = await env.DB.prepare(
+      `SELECT COUNT(*) AS commits, COALESCE(SUM(lines_added), 0) AS linesAdded,
+              COALESCE(SUM(lines_removed), 0) AS linesRemoved, COALESCE(SUM(files), 0) AS filesTouched
+         FROM commit_credits
+        WHERE user_github_id = ?1 AND session_id <> ?2
+          AND commit_id IN (SELECT json_extract(value, '$.id') FROM json_each(?3))`,
+    ).bind(uid, sessionId, list).first<Stats>();
+    return dup ?? null;
+  } catch (e) {
+    console.warn(`commit facts not recorded: ${e instanceof Error ? e.message : String(e)}`);
+    return null;
+  }
+}
+
+// For a submit without commit facts: every CLI before 0.14.0, and a newer one
+// before it holds its commit key. Before the ledger, every session watching a
+// repo counted every commit it could see, so overlapping sessions reported the
+// same work and each was paid for it. Such a duplicate arrives as a state
+// another session was already paid for: the same user and project, overlapping
+// in time, with an event baseline equal to these exact stats. Real parallel
+// work on different commits does not produce four identical numbers.
 async function paidToTwin(env: Env, uid: number, session: IncomingSession, stats: Stats): Promise<boolean> {
   const latest = new Date(Math.max(Date.parse(session.endedAt), Date.now())).toISOString();
   const twin = await env.DB.prepare(
@@ -151,13 +205,20 @@ export async function submitSession(request: Request, env: Env): Promise<Respons
 
   if (!(await checkAndRecord(env, auth.sub))) return error(429, 'rate limit exceeded');
 
+  // Commits another session already owns come out of this one's totals before
+  // anything is scored, so a commit counts once however many sessions and
+  // machines report it. Files are counts, not names, so theirs come out as a
+  // count too: a floor, never a union.
+  const dup = parsed.commitFacts ? await creditedElsewhere(env, auth.sub, parsed.id, parsed.commitFacts) : null;
+  const stats: Stats = {
+    commits: Math.max(parsed.commits - (dup?.commits ?? 0), 0),
+    linesAdded: Math.max(parsed.linesAdded - (dup?.linesAdded ?? 0), 0),
+    linesRemoved: Math.max(parsed.linesRemoved - (dup?.linesRemoved ?? 0), 0),
+    filesTouched: Math.max(parsed.filesTouched - (dup?.filesTouched ?? 0), 0),
+  };
+
   // server is authoritative for momentum — recompute from raw stats and ignore whatever the client sent
-  const momentum = scoreSession({
-    commits: parsed.commits,
-    linesAdded: parsed.linesAdded,
-    linesRemoved: parsed.linesRemoved,
-    filesTouched: parsed.filesTouched,
-  });
+  const momentum = scoreSession(stats);
 
   const prior = await env.DB.prepare(
     `SELECT user_github_id AS uid,
@@ -174,13 +235,6 @@ export async function submitSession(request: Request, env: Env): Promise<Respons
     baseFiles: number | null;
   }>();
   if (prior && prior.uid !== auth.sub) return error(409, 'session id belongs to another user');
-
-  const stats: Stats = {
-    commits: parsed.commits,
-    linesAdded: parsed.linesAdded,
-    linesRemoved: parsed.linesRemoved,
-    filesTouched: parsed.filesTouched,
-  };
   // Uncredited sessions start from zero so a first shipping day still lands.
   const baseline: Stats = clampBaseline({
     commits: prior?.baseCommits ?? 0,
@@ -224,8 +278,8 @@ export async function submitSession(request: Request, env: Env): Promise<Respons
      WHERE sessions.user_github_id = excluded.user_github_id`,
   ).bind(
     parsed.id, auth.sub, parsed.tool, parsed.projectHash, parsed.branchHash, parsed.cliVersion, parsed.startedAt, parsed.endedAt,
-    parsed.durationSeconds, parsed.commits, parsed.linesAdded, parsed.linesRemoved,
-    parsed.filesTouched, momentum, submittedAt,
+    parsed.durationSeconds, stats.commits, stats.linesAdded, stats.linesRemoved,
+    stats.filesTouched, momentum, submittedAt,
     baseline.commits, baseline.linesAdded, baseline.linesRemoved, baseline.filesTouched,
   ).run();
 
@@ -257,12 +311,12 @@ export async function submitSession(request: Request, env: Env): Promise<Respons
 
   // No per-user ceiling. What bounds this table: one row per (session, day),
   // event days never exceeding commits, earnsEvents on every day, the request
-  // limiter, and for clients without the ledger, paidToTwin.
+  // limiter, and paidToTwin for submits that carry no commit facts.
   const bumpDay = claimedDays.filter((d) => d >= todayDay).sort().pop();
   const earns = newDays.length > 0
     ? earnsEvents(baseline, stats, newDays.length)
     : bumpDay !== undefined && earnsEvents(baseline, stats, 1);
-  const paidElsewhere = earns && !hasCommitLedger(parsed.cliVersion) && await paidToTwin(env, auth.sub, parsed, stats);
+  const paidElsewhere = earns && !parsed.commitFacts && await paidToTwin(env, auth.sub, parsed, stats);
 
   let landed = 0;
   if (earns && !paidElsewhere) {
@@ -295,5 +349,8 @@ export async function submitSession(request: Request, env: Env): Promise<Respons
 
   await env.DB.prepare(`UPDATE users SET last_seen_at = ? WHERE github_id = ?`).bind(submittedAt, auth.sub).run();
 
-  return json({ ok: true, submittedAt });
+  // Every submit carries the key, so an install that upgrades while logged in
+  // picks it up on its next submit with nothing to run.
+  const commitKey = await commitKeyFor(env.COMMIT_KEY_SECRET, auth.sub);
+  return json({ ok: true, submittedAt, ...(commitKey ? { commitKey, commitKeyVersion: COMMIT_KEY_VERSION } : {}) });
 }
