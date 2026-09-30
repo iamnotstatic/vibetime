@@ -230,6 +230,12 @@ export async function deleteSession(id: string): Promise<void> {
   });
 }
 
+// The wrapper moves endedAt forward on every poll, whether or not anything
+// changed, so a recent endedAt means a process is still watching the session.
+// Hook sessions move endedAt and lastActivityAt together, so this never keeps
+// an idle desktop session alive.
+const HEARTBEAT_MS = Math.max(3 * TUNABLES.pollIntervalMs, 2 * 60_000);
+
 export async function reapOrphanedSessions(): Promise<void> {
   await withLock(() => {
     const data = readDb();
@@ -241,6 +247,9 @@ export async function reapOrphanedSessions(): Promise<void> {
 
       const lastMs = new Date(s.lastActivityAt || s.startedAt).getTime();
       if (now - lastMs <= INACTIVITY_TIMEOUT_MS) continue;
+      // An idle terminal is still open: reaping it only has its wrapper revive
+      // it on the next poll, and each round trip resubmits it.
+      if (now - Date.parse(s.endedAt) <= HEARTBEAT_MS) continue;
 
       // durationSeconds is accumulated live with idle gaps excluded (hook
       // events and the wrapper poller both do this), so extend it by the same
