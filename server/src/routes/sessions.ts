@@ -70,15 +70,23 @@ function parseSession(raw: unknown): IncomingSession | string {
   return { ...(s as unknown as IncomingSession), branchHash, cliVersion: null };
 }
 
+// A 400 makes the CLI drop the session for good, so the reason is logged: it
+// is the only trace the rejection leaves.
+function rejected(reason: string, cliVersion: string | null): Response {
+  console.warn(`submit rejected: ${reason} (cli ${cliVersion ?? 'unknown'})`);
+  return error(400, reason);
+}
+
 export async function submitSession(request: Request, env: Env): Promise<Response> {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
 
   let body: unknown;
-  try { body = await request.json(); } catch { return error(400, 'invalid json'); }
+  const cliVersion = parseCliVersion(request);
+  try { body = await request.json(); } catch { return rejected('invalid json', cliVersion); }
   const parsed = parseSession(body);
-  if (typeof parsed === 'string') return error(400, parsed);
-  parsed.cliVersion = parseCliVersion(request);
+  if (typeof parsed === 'string') return rejected(parsed, cliVersion);
+  parsed.cliVersion = cliVersion;
 
   // Staleness keys on when the session ENDED: long-lived sessions are
   // first-class now that ship events count per day, so a session started
@@ -86,15 +94,19 @@ export async function submitSession(request: Request, env: Env): Promise<Respons
   // weeks ago is a zombie resubmission whatever its start date.
   const startedAtMs = Date.parse(parsed.startedAt);
   const endedAtMs = Date.parse(parsed.endedAt);
-  if (Date.now() - endedAtMs > MAX_AGE_MS) return error(400, 'session too old');
-  if (parsed.durationSeconds < MIN_DURATION_S) return error(400, 'session too short');
+  if (Date.now() - endedAtMs > MAX_AGE_MS) return rejected('session too old', cliVersion);
+  if (parsed.durationSeconds < MIN_DURATION_S) return rejected('session too short', cliVersion);
 
-  // Event days must fall within the session's lifespan (a day of slack each
-  // side for clock skew) — no forging history outside the session.
+  // Event days must fall between the session's start and now (a day of slack
+  // each side for clock skew), so no history is forged outside it. The client's
+  // endedAt is no upper bound: an open desktop session reports its start as its
+  // end, and the reaper winds a session's end back to its last activity, so real
+  // ship days routinely fall after it.
   if (parsed.shipEvents) {
+    const latestMs = Math.max(endedAtMs, Date.now());
     for (const day of parsed.shipEvents) {
       const dayMs = Date.parse(day);
-      if (dayMs < startedAtMs - DAY_SLACK_MS * 2 || dayMs > endedAtMs + DAY_SLACK_MS) return error(400, 'shipEvents outside session');
+      if (dayMs < startedAtMs - DAY_SLACK_MS * 2 || dayMs > latestMs + DAY_SLACK_MS) return rejected('shipEvents outside session', cliVersion);
     }
   }
 
