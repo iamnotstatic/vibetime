@@ -29,6 +29,7 @@ function commitFacts(s: Session, auth: AuthRecord): Record<string, unknown> {
     commitFacts: s.commitFacts.map((f) => ({
       id: keyed(key, f.sha),
       authorId: keyed(key, f.key),
+      treeId: keyed(key, f.tree),
       committedAt: Math.floor(f.committedAt / 1000),
       linesAdded: f.linesAdded,
       linesRemoved: f.linesRemoved,

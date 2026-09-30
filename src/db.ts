@@ -393,10 +393,12 @@ export function creditWork(session: Contender, work: RepoWork[]): GitDiffStats &
     }
 
     const commitFacts = work
-      .flatMap((repo) => repo.commits.filter((c) => credited.has(c.sha)))
+      // A commit whose tree could not be read still counts; it just cannot be
+      // described to the server, and an empty tree would match every other.
+      .flatMap((repo) => repo.commits.filter((c) => credited.has(c.sha) && c.tree))
       .sort((a, b) => b.committedAt - a.committedAt)
       .slice(0, MAX_COMMIT_FACTS)
-      .map((c) => ({ sha: c.sha, key: c.key, committedAt: c.committedAt, linesAdded: c.linesAdded, linesRemoved: c.linesRemoved, files: c.files.length }));
+      .map((c) => ({ sha: c.sha, key: c.key, tree: c.tree, committedAt: c.committedAt, linesAdded: c.linesAdded, linesRemoved: c.linesRemoved, files: c.files.length }));
     return {
       ...sumWork(
         work,

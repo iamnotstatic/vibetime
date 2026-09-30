@@ -19,6 +19,7 @@ const HEX32_RE = /^[0-9a-f]{32}$/;
 interface CommitFact {
   id: string;
   authorId: string;
+  treeId: string;
   committedAt: number;
   linesAdded: number;
   linesRemoved: number;
@@ -96,35 +97,64 @@ function parseCommitFacts(s: Record<string, unknown>): CommitFact[] | null {
     const f = raw as Record<string, unknown>;
     if (typeof f.id !== 'string' || !HEX32_RE.test(f.id)) return null;
     if (typeof f.authorId !== 'string' || !HEX32_RE.test(f.authorId)) return null;
+    if (typeof f.treeId !== 'string' || !HEX32_RE.test(f.treeId)) return null;
     if (!count(f.committedAt) || !count(f.linesAdded) || !count(f.linesRemoved) || !count(f.files)) return null;
-    facts.push({ id: f.id, authorId: f.authorId, committedAt: f.committedAt, linesAdded: f.linesAdded, linesRemoved: f.linesRemoved, files: f.files });
+    facts.push({ id: f.id, authorId: f.authorId, treeId: f.treeId, committedAt: f.committedAt, linesAdded: f.linesAdded, linesRemoved: f.linesRemoved, files: f.files });
   }
   return facts;
 }
 
-// The first session to report a commit owns it, from any machine. Returns what
-// this session reported that another one already owns, to be taken out of its
-// totals, or null when the facts could not be recorded: a failure here must
-// leave the submit scored exactly as it was before commit facts existed.
-async function creditedElsewhere(env: Env, uid: number, sessionId: string, facts: CommitFact[]): Promise<Stats | null> {
+// What this session reported that is already credited elsewhere, to be taken
+// out of its totals, or null when the facts could not be recorded: a failure
+// here must leave the submit scored exactly as it was before commit facts.
+//
+// Credit belongs to a piece of work, not a commit id. A rebase, amend or
+// cherry-pick gives the same work a new id but keeps its author, author time
+// and line counts, so both ids file under one piece of work and its first
+// reporter keeps it: no copy is paid again, and the owner is never docked for
+// its own rewrite, which would leave the work credited to nobody. A squash
+// changes all of that, but a squash of an up-to-date branch produces the same
+// tree as the branch's last commit, so a later commit with a tree already on
+// record is a copy of work already counted.
+async function creditedElsewhere(env: Env, uid: number, session: IncomingSession, facts: CommitFact[]): Promise<Stats | null> {
   try {
-    const list = JSON.stringify(facts);
+    const list = JSON.stringify(facts.map((f) => ({
+      ...f,
+      work: `${session.projectHash}:${f.authorId}:${f.linesAdded}:${f.linesRemoved}`,
+    })));
     await env.DB.prepare(
       `INSERT OR IGNORE INTO commit_credits
-         (user_github_id, commit_id, author_id, session_id, committed_at, lines_added, lines_removed, files, credited_at)
-       SELECT ?1, json_extract(value, '$.id'), json_extract(value, '$.authorId'), ?2,
+         (user_github_id, commit_id, work_key, tree_id, project_hash, committed_at, lines_added, lines_removed, files)
+       SELECT ?1, json_extract(value, '$.id'), json_extract(value, '$.work'), json_extract(value, '$.treeId'), ?2,
               json_extract(value, '$.committedAt'), json_extract(value, '$.linesAdded'),
-              json_extract(value, '$.linesRemoved'), json_extract(value, '$.files'), ?3
-         FROM json_each(?4)`,
-    ).bind(uid, sessionId, new Date().toISOString(), list).run();
-    const dup = await env.DB.prepare(
-      `SELECT COUNT(*) AS commits, COALESCE(SUM(lines_added), 0) AS linesAdded,
-              COALESCE(SUM(lines_removed), 0) AS linesRemoved, COALESCE(SUM(files), 0) AS filesTouched
-         FROM commit_credits
-        WHERE user_github_id = ?1 AND session_id <> ?2
-          AND commit_id IN (SELECT json_extract(value, '$.id') FROM json_each(?3))`,
-    ).bind(uid, sessionId, list).first<Stats>();
-    return dup ?? null;
+              json_extract(value, '$.linesRemoved'), json_extract(value, '$.files')
+         FROM json_each(?3)`,
+    ).bind(uid, session.projectHash, list).run();
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO work_credits (user_github_id, work_key, session_id, credited_at)
+       SELECT DISTINCT ?1, c.work_key, ?2, ?3 FROM commit_credits c
+        WHERE c.user_github_id = ?1 AND c.commit_id IN (SELECT json_extract(value, '$.id') FROM json_each(?4))`,
+    ).bind(uid, session.id, new Date().toISOString(), list).run();
+    const rows = await env.DB.prepare(
+      `SELECT c.commit_id AS id, w.session_id AS owner,
+              EXISTS (SELECT 1 FROM commit_credits t
+                       WHERE t.user_github_id = c.user_github_id AND t.project_hash = c.project_hash
+                         AND t.tree_id = c.tree_id AND t.commit_id <> c.commit_id
+                         AND t.committed_at <= c.committed_at) AS copy
+         FROM commit_credits c
+         JOIN work_credits w ON w.user_github_id = c.user_github_id AND w.work_key = c.work_key
+        WHERE c.user_github_id = ?1 AND c.commit_id IN (SELECT json_extract(value, '$.id') FROM json_each(?2))`,
+    ).bind(uid, list).all<{ id: string; owner: string; copy: number }>();
+    const elsewhere = new Set(rows.results.filter((r) => r.owner !== session.id || r.copy).map((r) => r.id));
+    const dup: Stats = { commits: 0, linesAdded: 0, linesRemoved: 0, filesTouched: 0 };
+    for (const f of facts) {
+      if (!elsewhere.has(f.id)) continue;
+      dup.commits += 1;
+      dup.linesAdded += f.linesAdded;
+      dup.linesRemoved += f.linesRemoved;
+      dup.filesTouched += f.files;
+    }
+    return dup;
   } catch (e) {
     console.warn(`commit facts not recorded: ${e instanceof Error ? e.message : String(e)}`);
     return null;
@@ -209,7 +239,7 @@ export async function submitSession(request: Request, env: Env): Promise<Respons
   // anything is scored, so a commit counts once however many sessions and
   // machines report it. Files are counts, not names, so theirs come out as a
   // count too: a floor, never a union.
-  const dup = parsed.commitFacts ? await creditedElsewhere(env, auth.sub, parsed.id, parsed.commitFacts) : null;
+  const dup = parsed.commitFacts ? await creditedElsewhere(env, auth.sub, parsed, parsed.commitFacts) : null;
   const stats: Stats = {
     commits: Math.max(parsed.commits - (dup?.commits ?? 0), 0),
     linesAdded: Math.max(parsed.linesAdded - (dup?.linesAdded ?? 0), 0),

@@ -71,8 +71,9 @@ async function measuredSession(t) {
   writeFileSync(join(repo, 'work.txt'), Array.from({ length: 60 }, (_, i) => `${randomUUID()} ${i}`).join('\n'));
   sh('git add work.txt && git commit -q -m work', repo);
   const sha = sh('git rev-parse HEAD', repo);
+  const tree = sh('git rev-parse HEAD^{tree}', repo);
   const stats = creditWork(session, measureRepos(repos));
-  return { session: { ...session, ...stats, momentum: 'shipped' }, sha, repo };
+  return { session: { ...session, ...stats, momentum: 'shipped' }, sha, tree, repo };
 }
 
 test('without a key nothing about individual commits is sent, and the key that comes back is kept', async (t) => {
@@ -90,7 +91,7 @@ test('with a key, commits go as keyed hashes and never as themselves', async (t)
   posts.length = 0;
   login({ commitKey: KEY, commitKeyVersion: 1 });
   respondWith = {};
-  const { session, sha } = await measuredSession(t);
+  const { session, sha, tree } = await measuredSession(t);
 
   assert.equal(await submitInProgress(session), true);
   const [{ raw, body }] = posts;
@@ -99,10 +100,11 @@ test('with a key, commits go as keyed hashes and never as themselves', async (t)
   const [fact] = body.commitFacts;
   assert.match(fact.id, /^[0-9a-f]{32}$/);
   assert.match(fact.authorId, /^[0-9a-f]{32}$/);
+  assert.match(fact.treeId, /^[0-9a-f]{32}$/);
   assert.equal(fact.linesAdded, 60);
   assert.equal(fact.files, 1);
   assert.ok(Number.isInteger(fact.committedAt) && fact.committedAt < Date.now() / 1000 + 5, 'seconds, not ms');
-  for (const secret of [sha, sha.slice(0, 7), 'secret-author@example.com', 'work.txt']) {
+  for (const secret of [sha, sha.slice(0, 7), tree, tree.slice(0, 7), 'secret-author@example.com', 'work.txt']) {
     assert.ok(!raw.includes(secret), `the request must not contain ${secret}`);
   }
 });
