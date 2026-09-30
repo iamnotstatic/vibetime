@@ -173,8 +173,11 @@ test('an older window left open does not take a newer session\'s work', async (t
   const { repo } = setup(t);
   const [idle, working] = [randomUUID(), randomUUID()];
   await hook('session-start', idle, repo);
-  await new Promise((r) => setTimeout(r, 20));
+  await new Promise((r) => setTimeout(r, 1100));
   await hook('session-start', working, repo);
+  // Commit times are whole seconds, and a session is in the running for a
+  // commit only if it had started by then.
+  await new Promise((r) => setTimeout(r, 1100));
   commit(repo, 'work.txt');
   await hook('session-end', idle, repo);
   await hook('session-end', working, repo);
@@ -238,4 +241,26 @@ test('commits in two repos in the same second are both credited', async (t) => {
   await hook('session-end', b, other);
 
   assert.deepEqual([find(a).commits, find(b).commits], [1, 1]);
+});
+
+test('a session opened later in a checkout does not strand the earlier session\'s commits', async (t) => {
+  const { repo } = setup(t);
+  const { creditWork } = await import('../dist/db.js');
+  const { measureRepos } = await import('../dist/git.js');
+  const init = sh('git rev-parse HEAD', repo);
+  commit(repo, 'before.txt');
+  const head = sh('git rev-parse HEAD', repo);
+
+  // What an upgrade looks like, and a hook session between refreshes: the
+  // earlier session has not been measured since the commit, and a newer one
+  // has since opened in the same checkout. The newer one's baseline was taken
+  // after the commit, so it can never claim it; only the earlier one can.
+  const base = { tool: 'claude', project: 'repo', branch: 'main', durationSeconds: 0, commits: 0, linesAdded: 0,
+    linesRemoved: 0, filesTouched: 0, momentum: 'idle', exitCode: -1 };
+  const at = (ms) => new Date(Date.now() + ms).toISOString();
+  const earlier = { ...base, id: randomUUID(), startedAt: at(-60_000), endedAt: at(0), repos: [{ path: repo, startSha: init }] };
+  const later = { ...base, id: randomUUID(), startedAt: at(5_000), endedAt: at(5_000), repos: [{ path: repo, startSha: head }] };
+  writeFileSync(join(process.env.VIBE_DIR, 'sessions.json'), JSON.stringify({ sessions: [earlier, later] }));
+
+  assert.equal(creditWork(earlier, measureRepos(earlier.repos)).commits, 1);
 });

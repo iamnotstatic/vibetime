@@ -297,9 +297,11 @@ export function getDiffStats(fromSha: string, toSha: string, cwd?: string): GitD
 // rewritten commit can still be recognised as work already credited.
 // `checkouts` are the checkouts whose tip reaches it, which is how a commit
 // made in one worktree is told apart from one merely visible from a sibling.
+// `committedAt` is when it landed in this repo, in ms.
 export interface CommitWork {
   sha: string;
   key: string;
+  committedAt: number;
   linesAdded: number;
   linesRemoved: number;
   files: string[];
@@ -364,14 +366,14 @@ function repoCommits(checkouts: { path: string; head: string; startSha: string }
   }
 
   const commits: CommitWork[] = [];
-  const log = runGit(['log', '--format=%x00%H %at %ae %ce', '--numstat', ...authors, ...exclude, ...tips], repoPath);
+  const log = runGit(['log', '--format=%x00%H %at %ae %ce %ct', '--numstat', ...authors, ...exclude, ...tips], repoPath);
   for (const entry of log.split('\0').filter(Boolean)) {
     const [header, ...numstat] = entry.split('\n');
-    const [sha, at, authorEmail, committerEmail] = header.split(' ');
+    const [sha, at, authorEmail, committerEmail, ct] = header.split(' ');
     if (!isSha(sha) || committerEmail === WEB_COMMITTER) continue;
     const { added, removed, files } = parseNumstat(numstat.join('\n'));
     commits.push({
-      sha, key: `${at} ${authorEmail}`,
+      sha, key: `${at} ${authorEmail}`, committedAt: (parseInt(ct, 10) || 0) * 1000,
       linesAdded: added, linesRemoved: removed, files: [...files],
       checkouts: reach.get(sha) ?? [],
     });

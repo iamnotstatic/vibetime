@@ -292,6 +292,11 @@ const newest = (list: Contender[]): Contender | undefined =>
 // left open for days is still an open session, and the one just started in
 // that checkout is the one doing the work its endcard should show. Uncommitted
 // work follows the same ownership, since it too sits in exactly one checkout.
+//
+// For a commit, only sessions already running when it landed are in the
+// running. A session opened afterwards took its baseline past that commit and
+// can never claim it, so letting it own the checkout would leave the commit
+// credited to nobody.
 export function creditWork(session: Contender, work: RepoWork[]): GitDiffStats {
   return withLockSync(() => {
     const data = readDb();
@@ -322,9 +327,10 @@ export function creditWork(session: Contender, work: RepoWork[]): GitDiffStats {
       ...data.sessions.filter((s) => s.exitCode === -1 && s.id !== session.id),
       session,
     ];
-    const ownsCheckout = (path: string, repoCheckouts: string[]): boolean => {
-      const homed = contenders.filter((s) => homes(s).includes(path));
-      const owner = newest(homed.length ? homed : contenders.filter((s) => knownCheckouts(s).some((p) => repoCheckouts.includes(p))));
+    const ownsCheckout = (path: string, repoCheckouts: string[], landedAt = Infinity): boolean => {
+      const running = contenders.filter((s) => s.id === session.id || Date.parse(s.startedAt) <= landedAt);
+      const homed = running.filter((s) => homes(s).includes(path));
+      const owner = newest(homed.length ? homed : running.filter((s) => knownCheckouts(s).some((p) => repoCheckouts.includes(p))));
       return !owner || owner.id === session.id;
     };
 
@@ -355,7 +361,7 @@ export function creditWork(session: Contender, work: RepoWork[]): GitDiffStats {
           rewrittenLeft.set(commit.key, left - 1);
           continue;
         }
-        if (!commit.checkouts.some((p) => ownsCheckout(p, repo.checkouts))) continue;
+        if (!commit.checkouts.some((p) => ownsCheckout(p, repo.checkouts, commit.committedAt))) continue;
         credited.add(commit.sha);
         claimed.push(`${commit.sha} ${commit.key}`);
       }
