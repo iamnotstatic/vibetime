@@ -218,3 +218,24 @@ test('a hand-edited ledger is ignored rather than trusted or fatal', async (t) =
 
   assert.equal(creditWork(session, measureRepos(repos)).commits, 1);
 });
+
+test('commits in two repos in the same second are both credited', async (t) => {
+  const { dir, repo } = setup(t);
+  const other = join(dir, 'other');
+  sh('git init -qb main other', dir);
+  sh('git commit -q --allow-empty -m init', other, author);
+
+  // Same author, same second: what parallel agents in two repos produce, and
+  // exactly what a rewritten copy of a commit looks like, so only the repo
+  // can tell them apart.
+  const when = { GIT_AUTHOR_DATE: '2026-09-30T12:00:00Z', GIT_COMMITTER_DATE: '2026-09-30T12:00:00Z' };
+  const [a, b] = [randomUUID(), randomUUID()];
+  await hook('session-start', a, repo);
+  commit(repo, 'a.txt', when);
+  await hook('session-end', a, repo);
+  await hook('session-start', b, other);
+  commit(other, 'b.txt', when);
+  await hook('session-end', b, other);
+
+  assert.deepEqual([find(a).commits, find(b).commits], [1, 1]);
+});

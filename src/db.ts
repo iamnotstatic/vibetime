@@ -300,7 +300,7 @@ export function creditWork(session: Contender, work: RepoWork[]): GitDiffStats {
     let changed = false;
 
     const takenShas = new Set<string>();
-    const takenKeys = new Map<string, string[]>();
+    const takenKeys: { sha: string; key: string; checkouts: string[] }[] = [];
     for (const other of data.sessions) {
       if (!Array.isArray(other.credited)) continue;
       if (other.exitCode !== -1 && Date.parse(other.endedAt) < cutoff) {
@@ -312,8 +312,7 @@ export function creditWork(session: Contender, work: RepoWork[]): GitDiffStats {
       for (const entry of other.credited) {
         const [sha, ...key] = String(entry).split(' ');
         takenShas.add(sha);
-        const k = key.join(' ');
-        takenKeys.set(k, [...(takenKeys.get(k) ?? []), sha]);
+        takenKeys.push({ sha, key: key.join(' '), checkouts: knownCheckouts(other) });
       }
     }
 
@@ -334,10 +333,16 @@ export function creditWork(session: Contender, work: RepoWork[]): GitDiffStats {
     for (const repo of work) {
       const inRange = new Set(repo.commits.map((c) => c.sha));
       // A key another session holds for a sha no longer in range is a
-      // rewritten copy of its commit. Two distinct commits can share an author
-      // second, so each held key excuses only as many commits as it was held for.
+      // rewritten copy of its commit, but only within one repo: a rebase or an
+      // amend stays where it was made, while two repos worked in parallel
+      // routinely commit as the same author in the same second. Even in one
+      // repo two distinct commits can share an author second, so each held key
+      // excuses only as many commits as it was held for.
       const rewrittenLeft = new Map<string, number>();
-      for (const [k, shas] of takenKeys) rewrittenLeft.set(k, shas.filter((sha) => !inRange.has(sha)).length);
+      for (const held of takenKeys) {
+        if (inRange.has(held.sha) || !held.checkouts.some((p) => repo.checkouts.includes(p))) continue;
+        rewrittenLeft.set(held.key, (rewrittenLeft.get(held.key) ?? 0) + 1);
+      }
 
       for (const commit of repo.commits) {
         if (ownShas.has(commit.sha)) {
