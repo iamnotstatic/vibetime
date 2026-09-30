@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { addSession, claimSession, creditWork, updateSession, deleteSession, INACTIVITY_TIMEOUT_MS, type Session } from './db.js';
-import { baselineRepos, describeRepos, measureRepos, getReposFingerprint, type RepoBaseline } from './git.js';
+import { baselineRepos, describeRepos, measureRepos, getReposFingerprint, type RepoBaseline, type GitDiffStats, type CommitFact } from './git.js';
 import { refreshAndReap } from './rescore.js';
 import { readConfig } from './config.js';
 import { scoreSession, trackShipEvents, type ShipEventState } from './score.js';
@@ -85,14 +85,14 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
 
   let eventState: ShipEventState = {};
 
-  function snapshot(exitCode: number): Pick<Session, 'endedAt' | 'durationSeconds' | 'commits' | 'linesAdded' | 'linesRemoved' | 'filesTouched' | 'momentum' | 'exitCode' | 'lastActivityAt' | 'shipEvents' | 'eventBaseline'> {
+  function snapshot(exitCode: number): Pick<Session, 'endedAt' | 'durationSeconds' | 'commits' | 'linesAdded' | 'linesRemoved' | 'filesTouched' | 'commitFacts' | 'momentum' | 'exitCode' | 'lastActivityAt' | 'shipEvents' | 'eventBaseline'> {
     const endedAt = new Date().toISOString();
     const endMs = new Date(endedAt).getTime();
     const startMs = new Date(startedAt).getTime();
     const effectiveGapMs = totalGapMs + (idleSince ? endMs - idleSince : 0);
     const durationSeconds = Math.round(Math.max(endMs - startMs - effectiveGapMs, 0) / 1000);
 
-    let diffStats = { commits: 0, linesAdded: 0, linesRemoved: 0, filesTouched: 0 };
+    let diffStats: GitDiffStats & { commitFacts: CommitFact[] } = { commits: 0, linesAdded: 0, linesRemoved: 0, filesTouched: 0, commitFacts: [] };
     if (hasGit) {
       diffStats = creditWork({ id: sessionId, startedAt, repos }, measureRepos(repos, commitIdentities()));
     }

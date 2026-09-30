@@ -308,6 +308,18 @@ export interface CommitWork {
   checkouts: string[];
 }
 
+// What the server is told about a commit a session was credited with. The sha
+// and author key never leave the machine as they are: submit.ts sends keyed
+// hashes of them, alongside the numbers the leaderboard already sees.
+export interface CommitFact {
+  sha: string;
+  key: string;
+  committedAt: number;
+  linesAdded: number;
+  linesRemoved: number;
+  files: number;
+}
+
 export interface CheckoutWork {
   path: string;
   linesAdded: number;

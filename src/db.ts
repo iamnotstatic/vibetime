@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, renameSync, mkdirSync, rmdirSync, unlinkSy
 import { VIBE_DIR, ensureVibeDir, readConfig } from './config.js';
 import { TUNABLES } from './remote-config.js';
 import { scoreReaped, type MomentumTier } from './score.js';
-import { sumWork, type RepoBaseline, type RepoWork, type GitDiffStats } from './git.js';
+import { sumWork, type RepoBaseline, type RepoWork, type GitDiffStats, type CommitFact } from './git.js';
 
 export interface Session {
   id: string;
@@ -57,6 +57,10 @@ export interface Session {
   // Local only, never submitted: it exists so no other session on this machine
   // can be credited with the same commit.
   credited?: string[];
+  // The commits this session is credited with right now, for the server to
+  // count each commit once across machines. Rewritten on every measure, so it
+  // never names a commit that has since left the session's range.
+  commitFacts?: CommitFact[];
 }
 
 interface DbSchema {
@@ -267,6 +271,13 @@ export async function reapOrphanedSessions(): Promise<void> {
 // by every commit ever made.
 const CREDIT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
+// The server refuses sessions that ended longer ago than this, so their facts
+// can never be sent again.
+const FACT_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
+
+// The newest are the ones still earning; the server takes at most this many.
+const MAX_COMMIT_FACTS = 500;
+
 type Contender = Pick<Session, 'id' | 'startedAt' | 'repos'>;
 
 const homes = (s: Contender): string[] => (s.repos ?? []).map((r) => r.path);
@@ -297,7 +308,7 @@ const newest = (list: Contender[]): Contender | undefined =>
 // running. A session opened afterwards took its baseline past that commit and
 // can never claim it, so letting it own the checkout would leave the commit
 // credited to nobody.
-export function creditWork(session: Contender, work: RepoWork[]): GitDiffStats {
+export function creditWork(session: Contender, work: RepoWork[]): GitDiffStats & { commitFacts: CommitFact[] } {
   return withLockSync(() => {
     const data = readDb();
     const now = Date.now();
@@ -307,6 +318,10 @@ export function creditWork(session: Contender, work: RepoWork[]): GitDiffStats {
     const takenShas = new Set<string>();
     const takenKeys: { sha: string; key: string; checkouts: string[] }[] = [];
     for (const other of data.sessions) {
+      if (other.commitFacts && other.exitCode !== -1 && Date.parse(other.endedAt) < now - FACT_RETENTION_MS) {
+        delete other.commitFacts;
+        changed = true;
+      }
       if (!Array.isArray(other.credited)) continue;
       if (other.exitCode !== -1 && Date.parse(other.endedAt) < cutoff) {
         delete other.credited;
@@ -377,10 +392,18 @@ export function creditWork(session: Contender, work: RepoWork[]): GitDiffStats {
       try { writeDb(data); } catch {}
     }
 
-    return sumWork(
-      work,
-      (c) => credited.has(c.sha),
-      (path) => ownsCheckout(path, work.find((r) => r.checkouts.includes(path))?.checkouts ?? []),
-    );
+    const commitFacts = work
+      .flatMap((repo) => repo.commits.filter((c) => credited.has(c.sha)))
+      .sort((a, b) => b.committedAt - a.committedAt)
+      .slice(0, MAX_COMMIT_FACTS)
+      .map((c) => ({ sha: c.sha, key: c.key, committedAt: c.committedAt, linesAdded: c.linesAdded, linesRemoved: c.linesRemoved, files: c.files.length }));
+    return {
+      ...sumWork(
+        work,
+        (c) => credited.has(c.sha),
+        (path) => ownsCheckout(path, work.find((r) => r.checkouts.includes(path))?.checkouts ?? []),
+      ),
+      commitFacts,
+    };
   });
 }

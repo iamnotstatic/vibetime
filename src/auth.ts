@@ -26,6 +26,11 @@ export interface AuthRecord {
   // signed out. Deleting it made a broken login indistinguishable from never
   // having logged in, which is how a week of submissions failed in silence.
   signedOutAt?: string;
+  // Issued by the server on submit, per account, so every machine signed in to
+  // one account hashes a commit to the same id. Belongs to this login: a new
+  // login starts without it and picks up its own on the next submit.
+  commitKey?: string;
+  commitKeyVersion?: number;
 }
 
 function readRecord(): AuthRecord | null {
@@ -128,6 +133,7 @@ export async function refreshAuth(auth: AuthRecord, timeoutMs = 3000): Promise<A
       avatarUrl: renewed.avatarUrl,
       issuedAt: new Date().toISOString(),
       refreshToken: auth.refreshToken,
+      ...(auth.commitKey ? { commitKey: auth.commitKey, commitKeyVersion: auth.commitKeyVersion } : {}),
     };
     writeAuth(record);
     return record;
@@ -138,6 +144,15 @@ export async function refreshAuth(auth: AuthRecord, timeoutMs = 3000): Promise<A
     }
     return auth;
   }
+}
+
+// Only onto the login that submitted: a record that has since signed out or
+// changed hands must not inherit another account's key.
+export function rememberCommitKey(jwt: string, commitKey: string, commitKeyVersion: number): void {
+  const record = readRecord();
+  if (!record || record.signedOutAt || record.jwt !== jwt) return;
+  if (record.commitKey === commitKey && record.commitKeyVersion === commitKeyVersion) return;
+  writeAuth({ ...record, commitKey, commitKeyVersion });
 }
 
 // Usable credentials only: a signed-out record reads as no auth, so every
