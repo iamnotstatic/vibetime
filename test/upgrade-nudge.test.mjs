@@ -11,10 +11,13 @@ process.env.VIBE_DIR = scratch;
 delete process.env.VIBE_SESSION;
 
 // Every response carries the header, which is how the real server behaves.
+// api.js reads VIBE_API once, so a test that needs a different body changes
+// this rather than pointing at another server.
+let configExtra = {};
 const server = createServer((req, res) => {
   res.setHeader('x-cli-recommended-version', '9.9.9');
   res.setHeader('content-type', 'application/json');
-  res.end(JSON.stringify({ pollIntervalMs: 30_000, inProgressSubmitIntervalMs: 300_000, inactivityTimeoutMs: 1_800_000 }));
+  res.end(JSON.stringify({ pollIntervalMs: 30_000, inProgressSubmitIntervalMs: 300_000, inactivityTimeoutMs: 1_800_000, ...configExtra }));
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 process.env.VIBE_API = `http://127.0.0.1:${server.address().port}`;
@@ -112,4 +115,53 @@ test('the notice names the version and the command', () => {
   const out = renderUpgradeNotice('9.9.9');
   assert.match(out, /9\.9\.9/);
   assert.match(out, /npm i -g vibetime-cli/);
+});
+
+function reasonInFreshProcess(dir, version) {
+  const script = `
+    process.env.VIBE_DIR = ${JSON.stringify(dir)};
+    delete process.env.VIBE_API;
+    const { recommendedUpgradeReason } = await import(${JSON.stringify(MODULE)});
+    process.stdout.write(JSON.stringify(recommendedUpgradeReason(${JSON.stringify(version)})));
+  `;
+  return JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf-8' }));
+}
+
+test('a refresh persists the reason the server gave for its version', async () => {
+  configExtra = { recommended: { version: '9.9.9', reason: 'fixes double-counted ships' } };
+  try {
+    writeCache({ fetchedAt: '2020-01-01T00:00:00Z' });
+    const { refreshTunables } = await import(`../dist/remote-config.js?nudge=reason`);
+    await refreshTunables();
+    assert.equal(reasonInFreshProcess(scratch, '9.9.9'), 'fixes double-counted ships');
+  } finally {
+    configExtra = {};
+  }
+});
+
+test('a reason is only ever shown beside the version it was written for', () => {
+  writeCache({ recommendedVersion: '9.9.10', recommended: { version: '9.9.9', reason: 'fixes double-counted ships' } });
+  assert.equal(reasonInFreshProcess(scratch, '9.9.10'), null);
+});
+
+test('server text cannot move the cursor or recolour the terminal', () => {
+  writeCache({ recommendedVersion: '9.9.9', recommended: { version: '9.9.9', reason: '\u001b[2J\u001b[31mfixes\nships\u0007' + 'x'.repeat(200) } });
+  const reason = reasonInFreshProcess(scratch, '9.9.9');
+  assert.doesNotMatch(reason, /[\u0000-\u001f\u007f-\u009f]/);
+  assert.ok(reason.length <= 60, `one line, got ${reason.length} characters`);
+});
+
+test('a garbage reason cannot reach the notice', () => {
+  for (const recommended of [{ version: '9.9.9', reason: 42 }, { version: '9.9.9', reason: '  \n ' }, 'text', null]) {
+    writeCache({ recommendedVersion: '9.9.9', recommended });
+    assert.equal(reasonInFreshProcess(scratch, '9.9.9'), null, JSON.stringify(recommended));
+  }
+});
+
+test('the notice carries the reason between the version and the command', () => {
+  const plain = (s) => s.replace(/\u001b\[[0-9;]*m/g, '');
+  assert.equal(plain(renderUpgradeNotice('9.9.9', 'fixes double-counted ships')),
+    '  ◆ vibe 9.9.9 available · fixes double-counted ships · run npm i -g vibetime-cli\n');
+  assert.equal(plain(renderUpgradeNotice('9.9.9')), '  ◆ vibe 9.9.9 available · run npm i -g vibetime-cli\n',
+    'without a reason the line is exactly what it was');
 });
