@@ -120,16 +120,6 @@ test('amending a credited commit in a later session does not credit it again', a
   assert.equal(find(later).commits, 0, 'an amend keeps the author time, so it is the same work');
 });
 
-test('a squash merged on github.com is not credited when pulled', async (t) => {
-  const { repo } = setup(t);
-  const id = randomUUID();
-  await hook('session-start', id, repo);
-  commit(repo, 'squash.txt', { GIT_COMMITTER_NAME: 'GitHub', GIT_COMMITTER_EMAIL: 'noreply@github.com' });
-  await hook('session-end', id, repo);
-
-  assert.equal(find(id).commits, 0);
-});
-
 test('sessions crediting at the same instant claim a commit once', async (t) => {
   const { dir, repo } = setup(t);
   const init = sh('git rev-parse HEAD', repo);
@@ -263,4 +253,14 @@ test('a session opened later in a checkout does not strand the earlier session\'
   writeFileSync(join(process.env.VIBE_DIR, 'sessions.json'), JSON.stringify({ sessions: [earlier, later] }));
 
   assert.equal(creditWork(earlier, measureRepos(earlier.repos)).commits, 1);
+});
+
+test('a commit made on github.com still counts, as the README promises', async (t) => {
+  const { repo } = setup(t);
+  const id = randomUUID();
+  await hook('session-start', id, repo);
+  commit(repo, 'web.txt', { GIT_COMMITTER_NAME: 'GitHub', GIT_COMMITTER_EMAIL: 'noreply@github.com' });
+  await hook('session-end', id, repo);
+
+  assert.equal(find(id).commits, 1);
 });

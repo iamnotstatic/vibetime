@@ -62,6 +62,8 @@ Sessions are scored by what happened in git:
 
 **Whose commits count** — once you're logged in, only yours. Pulling or merging your team's work into your branch mid-session no longer counts their commits as yours. Vibetime matches on the email in that repo's `git config user.email` plus your GitHub noreply addresses, so commits made from the web UI still count and nothing needs configuring. Logged out, everything in the range counts, as before.
 
+**Each commit counts once.** Several sessions can see the same commit: agents in parallel worktrees of one repo, two editor windows on one branch, a terminal next to an editor. The commit goes to one of them, normally the session working in the checkout where it was made, so parallel work is credited in full and nothing is credited twice. Merging, rebasing or amending work a session was already credited for doesn't count it again.
+
 ## Desktop apps
 
 The Claude Code, Codex, and Cursor **Desktop** apps never run the wrapped terminal commands, so the shell wrapper can't see them. Vibetime tracks them through session hooks instead — `vibe init` sets these up automatically. If you ran `vibe init` before desktop support existed, either re-run it or use:

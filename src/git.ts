@@ -321,12 +321,6 @@ export interface RepoWork {
   uncommitted: CheckoutWork[];
 }
 
-// Squash and rebase merges made on github.com, and edits made in its web
-// editor, are committed by GitHub itself. None of that is work done in a
-// session: a merged PR's commits were credited where they were written, and
-// pulling the squash would credit the same work a second time.
-const WEB_COMMITTER = 'noreply@github.com';
-
 // Committed work across every checkout of one repo, one entry per commit.
 // Asking for the commits reachable from any current tip but from no baseline
 // is what makes a worktree count: its commits never move the main checkout's
@@ -366,11 +360,11 @@ function repoCommits(checkouts: { path: string; head: string; startSha: string }
   }
 
   const commits: CommitWork[] = [];
-  const log = runGit(['log', '--format=%x00%H %at %ae %ce %ct', '--numstat', ...authors, ...exclude, ...tips], repoPath);
+  const log = runGit(['log', '--format=%x00%H %at %ae %ct', '--numstat', ...authors, ...exclude, ...tips], repoPath);
   for (const entry of log.split('\0').filter(Boolean)) {
     const [header, ...numstat] = entry.split('\n');
-    const [sha, at, authorEmail, committerEmail, ct] = header.split(' ');
-    if (!isSha(sha) || committerEmail === WEB_COMMITTER) continue;
+    const [sha, at, authorEmail, ct] = header.split(' ');
+    if (!isSha(sha)) continue;
     const { added, removed, files } = parseNumstat(numstat.join('\n'));
     commits.push({
       sha, key: `${at} ${authorEmail}`, committedAt: (parseInt(ct, 10) || 0) * 1000,
