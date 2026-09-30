@@ -122,30 +122,35 @@ async function creditedElsewhere(env: Env, uid: number, session: IncomingSession
       ...f,
       work: `${session.projectHash}:${f.authorId}:${f.linesAdded}:${f.linesRemoved}`,
     })));
-    await env.DB.prepare(
-      `INSERT OR IGNORE INTO commit_credits
-         (user_github_id, commit_id, work_key, tree_id, project_hash, committed_at, lines_added, lines_removed, files)
-       SELECT ?1, json_extract(value, '$.id'), json_extract(value, '$.work'), json_extract(value, '$.treeId'), ?2,
-              json_extract(value, '$.committedAt'), json_extract(value, '$.linesAdded'),
-              json_extract(value, '$.linesRemoved'), json_extract(value, '$.files')
-         FROM json_each(?3)`,
-    ).bind(uid, session.projectHash, list).run();
-    await env.DB.prepare(
-      `INSERT OR IGNORE INTO work_credits (user_github_id, work_key, session_id, credited_at)
-       SELECT DISTINCT ?1, c.work_key, ?2, ?3 FROM commit_credits c
-        WHERE c.user_github_id = ?1 AND c.commit_id IN (SELECT json_extract(value, '$.id') FROM json_each(?4))`,
-    ).bind(uid, session.id, new Date().toISOString(), list).run();
-    const rows = await env.DB.prepare(
-      `SELECT c.commit_id AS id, w.session_id AS owner,
-              EXISTS (SELECT 1 FROM commit_credits t
-                       WHERE t.user_github_id = c.user_github_id AND t.project_hash = c.project_hash
-                         AND t.tree_id = c.tree_id AND t.commit_id <> c.commit_id
-                         AND t.committed_at <= c.committed_at) AS copy
-         FROM commit_credits c
-         JOIN work_credits w ON w.user_github_id = c.user_github_id AND w.work_key = c.work_key
-        WHERE c.user_github_id = ?1 AND c.commit_id IN (SELECT json_extract(value, '$.id') FROM json_each(?2))`,
-    ).bind(uid, list).all<{ id: string; owner: string; copy: number }>();
-    const elsewhere = new Set(rows.results.filter((r) => r.owner !== session.id || r.copy).map((r) => r.id));
+    // One round trip: the submit already sits close to the CLI's per-request
+    // budget, and a submit that outlives it is resent on every flush.
+    const [, , found] = await env.DB.batch([
+      env.DB.prepare(
+        `INSERT OR IGNORE INTO commit_credits
+           (user_github_id, commit_id, work_key, tree_id, project_hash, committed_at, lines_added, lines_removed, files)
+         SELECT ?1, json_extract(value, '$.id'), json_extract(value, '$.work'), json_extract(value, '$.treeId'), ?2,
+                json_extract(value, '$.committedAt'), json_extract(value, '$.linesAdded'),
+                json_extract(value, '$.linesRemoved'), json_extract(value, '$.files')
+           FROM json_each(?3)`,
+      ).bind(uid, session.projectHash, list),
+      env.DB.prepare(
+        `INSERT OR IGNORE INTO work_credits (user_github_id, work_key, session_id, credited_at)
+         SELECT DISTINCT ?1, c.work_key, ?2, ?3 FROM commit_credits c
+          WHERE c.user_github_id = ?1 AND c.commit_id IN (SELECT json_extract(value, '$.id') FROM json_each(?4))`,
+      ).bind(uid, session.id, new Date().toISOString(), list),
+      env.DB.prepare(
+        `SELECT c.commit_id AS id, w.session_id AS owner,
+                EXISTS (SELECT 1 FROM commit_credits t
+                         WHERE t.user_github_id = c.user_github_id AND t.project_hash = c.project_hash
+                           AND t.tree_id = c.tree_id AND t.commit_id <> c.commit_id
+                           AND t.committed_at <= c.committed_at) AS copy
+           FROM commit_credits c
+           JOIN work_credits w ON w.user_github_id = c.user_github_id AND w.work_key = c.work_key
+          WHERE c.user_github_id = ?1 AND c.commit_id IN (SELECT json_extract(value, '$.id') FROM json_each(?2))`,
+      ).bind(uid, list),
+    ]);
+    const rows = (found.results ?? []) as { id: string; owner: string; copy: number }[];
+    const elsewhere = new Set(rows.filter((r) => r.owner !== session.id || r.copy).map((r) => r.id));
     const dup: Stats = { commits: 0, linesAdded: 0, linesRemoved: 0, filesTouched: 0 };
     for (const f of facts) {
       if (!elsewhere.has(f.id)) continue;
