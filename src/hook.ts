@@ -212,6 +212,10 @@ async function onActivity(sessionId: string, cwd: string): Promise<void> {
     // from one adds nothing; otherwise the gap counts as live time, capped.
     durationSeconds: session.durationSeconds + (reopen === 'reaped' ? 0 : activeSecondsSince(session.lastActivityAt, session.startedAt, now)),
     lastActivityAt: new Date(now).toISOString(),
+    // As the wrapper's poller does. Left at the start, it dates every submit
+    // to day one: the server bounds ship days and staleness by it, so a
+    // desktop session open for days could not ship after its second.
+    endedAt: new Date(now).toISOString(),
   };
 
   if (reopen) {
