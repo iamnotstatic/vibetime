@@ -70,6 +70,38 @@ function parseSession(raw: unknown): IncomingSession | string {
   return { ...(s as unknown as IncomingSession), branchHash, cliVersion: null };
 }
 
+// 0.14.0 credits each commit to one session on the machine, so from there on a
+// duplicate never reaches the server as one.
+function hasCommitLedger(cliVersion: string | null): boolean {
+  if (!cliVersion) return false;
+  const [major = 0, minor = 0] = cliVersion.split('.').map((n) => parseInt(n, 10) || 0);
+  return major > 0 || minor >= 14;
+}
+
+// Before the ledger, every session watching a repo counted every commit it
+// could see, so overlapping sessions reported the same work and each was paid
+// for it. Such a duplicate arrives as a state another session was already paid
+// for: the same user and project, overlapping in time, with an event baseline
+// equal to these exact stats. Real parallel work on different commits does not
+// produce four identical numbers.
+async function paidToTwin(env: Env, uid: number, session: IncomingSession, stats: Stats): Promise<boolean> {
+  const latest = new Date(Math.max(Date.parse(session.endedAt), Date.now())).toISOString();
+  const twin = await env.DB.prepare(
+    `SELECT 1 FROM sessions s
+      WHERE s.user_github_id = ? AND s.project_hash = ? AND s.id <> ?
+        AND s.event_baseline_commits = ? AND s.event_baseline_lines_added = ?
+        AND s.event_baseline_lines_removed = ? AND s.event_baseline_files = ?
+        AND s.started_at <= ? AND s.ended_at >= ?
+        AND EXISTS (SELECT 1 FROM ship_events e WHERE e.session_id = s.id)
+      LIMIT 1`,
+  ).bind(
+    uid, session.projectHash, session.id,
+    stats.commits, stats.linesAdded, stats.linesRemoved, stats.filesTouched,
+    latest, session.startedAt,
+  ).first();
+  return twin !== null;
+}
+
 // A 400 makes the CLI drop the session for good, so the reason is logged: it
 // is the only trace the rejection leaves.
 function rejected(reason: string, cliVersion: string | null): Response {
@@ -224,22 +256,25 @@ export async function submitSession(request: Request, env: Env): Promise<Respons
   const newDays = claimedDays.filter((d) => !already.has(d));
 
   // No per-user ceiling. What bounds this table: one row per (session, day),
-  // event days never exceeding commits, earnsEvents on every day, and the
-  // request limiter.
+  // event days never exceeding commits, earnsEvents on every day, the request
+  // limiter, and for clients without the ledger, paidToTwin.
+  const bumpDay = claimedDays.filter((d) => d >= todayDay).sort().pop();
+  const earns = newDays.length > 0
+    ? earnsEvents(baseline, stats, newDays.length)
+    : bumpDay !== undefined && earnsEvents(baseline, stats, 1);
+  const paidElsewhere = earns && !hasCommitLedger(parsed.cliVersion) && await paidToTwin(env, auth.sub, parsed, stats);
+
   let landed = 0;
-  if (newDays.length > 0) {
-    if (earnsEvents(baseline, stats, newDays.length)) {
+  if (earns && !paidElsewhere) {
+    if (newDays.length > 0) {
       for (const day of newDays) {
         const res = await env.DB.prepare(
           `INSERT OR IGNORE INTO ship_events (session_id, user_github_id, day, ships) VALUES (?1, ?2, ?3, 1)`,
         ).bind(parsed.id, auth.sub, day).run();
         if (res.meta.changes > 0) landed++;
       }
-    }
-  } else if (earnsEvents(baseline, stats, 1)) {
-    // Shipped again on a day already credited: count up rather than drop it.
-    const bumpDay = claimedDays.filter((d) => d >= todayDay).sort().pop();
-    if (bumpDay) {
+    } else if (bumpDay) {
+      // Shipped again on a day already credited: count up rather than drop it.
       const res = await env.DB.prepare(
         `UPDATE ship_events SET ships = ships + 1 WHERE session_id = ? AND day = ?`,
       ).bind(parsed.id, bumpDay).run();
@@ -248,8 +283,9 @@ export async function submitSession(request: Request, env: Env): Promise<Respons
   }
 
   // Only credited work spends the delta, so a row a concurrent writer beat us
-  // to rolls forward instead of evaporating.
-  if (landed > 0) {
+  // to rolls forward instead of evaporating. Work already paid to a twin spends
+  // it too, or this session would be paid for the same delta on its next submit.
+  if (landed > 0 || paidElsewhere) {
     await env.DB.prepare(
       `UPDATE sessions SET event_baseline_commits = ?, event_baseline_lines_added = ?,
                            event_baseline_lines_removed = ?, event_baseline_files = ?
