@@ -46,6 +46,13 @@ function hook(event, sessionId, cwd, tool) {
   return handleHook(event, JSON.stringify({ session_id: sessionId, cwd }), tool);
 }
 
+// Every hook event writes endedAt and lastActivityAt together, so a session
+// that has gone quiet has both in the past.
+function idleFor(ms) {
+  const at = new Date(Date.now() - ms).toISOString();
+  return { lastActivityAt: at, endedAt: at };
+}
+
 function find(id) {
   return getSessions().find((s) => s.id === id);
 }
@@ -102,6 +109,7 @@ test('idle reap after a clean-end reopen re-finalizes clean, not interrupted', a
   await updateSession(id, {
     startedAt: new Date(now - 3 * 3_600_000).toISOString(),
     lastActivityAt,
+    endedAt: lastActivityAt,
     durationSeconds: 120,
   });
 
@@ -141,7 +149,7 @@ test('a session that never ended cleanly still reaps as interrupted, then reopen
   const id = randomUUID();
 
   await hook('session-start', id, repo);
-  await updateSession(id, { lastActivityAt: new Date(Date.now() - 31 * 60_000).toISOString() });
+  await updateSession(id, idleFor(31 * 60_000));
 
   await reapOrphanedSessions();
   let s = find(id);
@@ -170,7 +178,7 @@ test('a shipped hook session that idles out stays shipped, not interrupted', asy
   await hook('activity', id, repo);
 
   await updateSession(id, {
-    lastActivityAt: new Date(Date.now() - 31 * 60_000).toISOString(),
+    ...idleFor(31 * 60_000),
     momentum: 'shipped',
     commits: 1,
     linesAdded: 51,
@@ -193,7 +201,7 @@ test('a reaped session with nothing to show is still interrupted', async (t) => 
   const id = randomUUID();
 
   await hook('session-start', id, repo);
-  await updateSession(id, { lastActivityAt: new Date(Date.now() - 31 * 60_000).toISOString() });
+  await updateSession(id, idleFor(31 * 60_000));
 
   await reapOrphanedSessions();
   assert.equal(find(id).momentum, 'interrupted');
@@ -214,7 +222,7 @@ test('a reaped ship still revives hours later', async (t) => {
   await hook('activity', id, repo);
 
   await updateSession(id, {
-    lastActivityAt: new Date(Date.now() - 3 * 60 * 60_000).toISOString(),
+    ...idleFor(3 * 60 * 60_000),
     momentum: 'shipped', commits: 1, linesAdded: 51, filesTouched: 1,
   });
   await reapOrphanedSessions();
