@@ -62,7 +62,7 @@ Sessions are scored by what happened in git:
 
 **Whose commits count** — once you're logged in, only yours. Pulling or merging your team's work into your branch mid-session no longer counts their commits as yours. Vibetime matches on the email in that repo's `git config user.email` plus your GitHub noreply addresses, so commits made from the web UI still count and nothing needs configuring. Logged out, everything in the range counts, as before.
 
-**Each commit counts once.** Several sessions can see the same commit: agents in parallel worktrees of one repo, two editor windows on one branch, a terminal next to an editor. The commit goes to one of them, normally the session working in the checkout where it was made, so parallel work is credited in full and nothing is credited twice. Merging, rebasing or amending work a session was already credited for doesn't count it again.
+**Each commit counts once.** Several sessions can see the same commit: agents in parallel worktrees of one repo, two editor windows on one branch, a terminal next to an editor, or a second machine you pulled your own work onto. The commit goes to one of them, normally the session working in the checkout where it was made, so parallel work is credited in full and nothing is credited twice. Merging, rebasing or amending work a session was already credited for doesn't count it again, and neither does squash-merging a branch that was up to date. A squash onto a main that has moved since is the one copy it can't recognise.
 
 ## Desktop apps
 
@@ -116,7 +116,7 @@ Signed in after you'd already been tracking? Nothing is lost. Sessions from the 
 
 Still not there? Run `vibe status`. A session marked `progressed` or `tinkering` didn't qualify, and that's the point: only shipping scores. If ended sessions are still waiting on the server, `vibe status` says so — run `vibe leaderboard` to retry the upload.
 
-**Submitted fields:** `tool`, `startedAt`, `endedAt`, `durationSeconds`, `commits`, `linesAdded`, `linesRemoved`, `filesTouched`, `momentum`, a SHA-256 hash of the project name, and a salted hash of the branch name. The branch salt is random, generated on your machine, and never sent, so the hash only says whether two of your sessions were on the same branch and cannot be turned back into a name. Branch names, raw repo names, exit codes, and your local handle never leave the machine.
+**Submitted fields:** `tool`, `startedAt`, `endedAt`, `durationSeconds`, `commits`, `linesAdded`, `linesRemoved`, `filesTouched`, `momentum`, a SHA-256 hash of the project name, and a salted hash of the branch name. The branch salt is random, generated on your machine, and never sent, so the hash only says whether two of your sessions were on the same branch and cannot be turned back into a name. For each commit a session was credited with, keyed hashes of the commit, of its author and author time, and of the snapshot it produced, plus when it was committed and its line and file counts. The key is issued per account, so the same commit reported from two of your machines hashes the same and is counted once. Commit ids, commit messages, file names, branch names, raw repo names, your email, exit codes, and your local handle never leave the machine.
 
 `vibe logout` removes `~/.vibe/auth.json` and submission stops immediately.
 

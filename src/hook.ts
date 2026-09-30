@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { addSession, updateSession, getSessions, creditWork, INACTIVITY_TIMEOUT_MS, type Session } from './db.js';
-import { isGitRepo, getHeadSha, getDiffStats, measureRepos, baselineRepos, describeRepos, type GitDiffStats } from './git.js';
+import { isGitRepo, getHeadSha, getDiffStats, measureRepos, baselineRepos, describeRepos, type GitDiffStats, type CommitFact } from './git.js';
 import { refreshAndReap } from './rescore.js';
 import { readConfig } from './config.js';
 import { scoreSession, trackShipEvents } from './score.js';
@@ -81,7 +81,7 @@ function activeSecondsSince(lastActivityAt: string | undefined, startedAt: strin
 // What the session's repos show now, or null when they can't be measured — a
 // moved or deleted repo reads as an all-zero diff (git failures return empty
 // output), and a zero must never overwrite real recorded stats on a revival.
-function diffFor(session: Session, cwd: string): GitDiffStats | null {
+function diffFor(session: Session, cwd: string): (GitDiffStats & { commitFacts?: CommitFact[] }) | null {
   if (session.repos?.length) {
     const alive = session.repos.filter((r) => existsSync(r.path));
     return alive.length ? creditWork(session, measureRepos(alive, commitIdentities())) : null;

@@ -297,15 +297,32 @@ export function getDiffStats(fromSha: string, toSha: string, cwd?: string): GitD
 // rewritten commit can still be recognised as work already credited.
 // `checkouts` are the checkouts whose tip reaches it, which is how a commit
 // made in one worktree is told apart from one merely visible from a sibling.
-// `committedAt` is when it landed in this repo, in ms.
+// `committedAt` is when it landed in this repo, in ms. `tree` names the
+// snapshot the commit produced: a squash of an up-to-date branch produces the
+// same one as the branch's last commit, which is how a squash of work already
+// credited is recognised without looking at what changed.
 export interface CommitWork {
   sha: string;
   key: string;
+  tree: string;
   committedAt: number;
   linesAdded: number;
   linesRemoved: number;
   files: string[];
   checkouts: string[];
+}
+
+// What the server is told about a commit a session was credited with. The sha
+// and author key never leave the machine as they are: submit.ts sends keyed
+// hashes of them, alongside the numbers the leaderboard already sees.
+export interface CommitFact {
+  sha: string;
+  key: string;
+  tree: string;
+  committedAt: number;
+  linesAdded: number;
+  linesRemoved: number;
+  files: number;
 }
 
 export interface CheckoutWork {
@@ -360,14 +377,14 @@ function repoCommits(checkouts: { path: string; head: string; startSha: string }
   }
 
   const commits: CommitWork[] = [];
-  const log = runGit(['log', '--format=%x00%H %at %ae %ct', '--numstat', ...authors, ...exclude, ...tips], repoPath);
+  const log = runGit(['log', '--format=%x00%H %at %ae %ct %T', '--numstat', ...authors, ...exclude, ...tips], repoPath);
   for (const entry of log.split('\0').filter(Boolean)) {
     const [header, ...numstat] = entry.split('\n');
-    const [sha, at, authorEmail, ct] = header.split(' ');
+    const [sha, at, authorEmail, ct, tree] = header.split(' ');
     if (!isSha(sha)) continue;
     const { added, removed, files } = parseNumstat(numstat.join('\n'));
     commits.push({
-      sha, key: `${at} ${authorEmail}`, committedAt: (parseInt(ct, 10) || 0) * 1000,
+      sha, key: `${at} ${authorEmail}`, tree: isSha(tree) ? tree : '', committedAt: (parseInt(ct, 10) || 0) * 1000,
       linesAdded: added, linesRemoved: removed, files: [...files],
       checkouts: reach.get(sha) ?? [],
     });

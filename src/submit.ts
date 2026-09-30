@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { getSessions, updateSession, type Session } from './db.js';
-import { readAuth, markSignedOut, refreshAuth, jwtExpiresAtMs, type AuthRecord } from './auth.js';
+import { readAuth, markSignedOut, refreshAuth, jwtExpiresAtMs, rememberCommitKey, type AuthRecord } from './auth.js';
 import { request, ApiError } from './api.js';
 import { branchFingerprint } from './fingerprint.js';
 
@@ -12,7 +12,33 @@ function projectHash(project: string): string {
   return createHash('sha256').update(project).digest('hex').slice(0, 16);
 }
 
-function buildPayload(s: Session): Record<string, unknown> {
+// Keyed with the account's commit key, so the server can tell that two
+// sessions, on any machines, reported the same commit without ever learning
+// which commit it is.
+function keyed(commitKey: string, value: string): string {
+  return createHmac('sha256', commitKey).update(value).digest('hex').slice(0, 32);
+}
+
+// Only with a key, and only commits this session is credited with. Without a
+// key the server scores the totals alone, as it does for every older CLI.
+function commitFacts(s: Session, auth: AuthRecord): Record<string, unknown> {
+  if (!auth.commitKey || !auth.commitKeyVersion || !s.commitFacts?.length) return {};
+  const key = auth.commitKey;
+  return {
+    commitKeyVersion: auth.commitKeyVersion,
+    commitFacts: s.commitFacts.map((f) => ({
+      id: keyed(key, f.sha),
+      authorId: keyed(key, f.key),
+      treeId: keyed(key, f.tree),
+      committedAt: Math.floor(f.committedAt / 1000),
+      linesAdded: f.linesAdded,
+      linesRemoved: f.linesRemoved,
+      files: f.files,
+    })),
+  };
+}
+
+function buildPayload(s: Session, auth: AuthRecord): Record<string, unknown> {
   return {
     id: s.id,
     tool: s.tool.split('/').pop() || s.tool,
@@ -35,16 +61,27 @@ function buildPayload(s: Session): Record<string, unknown> {
     ...(s.shipEvents?.length && s.commits > 0
       ? { shipEvents: s.shipEvents.slice(-Math.min(s.commits, s.shipEvents.length)) }
       : {}),
+    ...commitFacts(s, auth),
   };
 }
 
-function postSession(session: Session, auth: AuthRecord, timeoutMs: number): Promise<unknown> {
-  return request<{ ok: true; submittedAt: string }>('/sessions', {
+interface SubmitResponse {
+  ok: true;
+  submittedAt: string;
+  commitKey?: unknown;
+  commitKeyVersion?: unknown;
+}
+
+async function postSession(session: Session, auth: AuthRecord, timeoutMs: number): Promise<void> {
+  const res = await request<SubmitResponse>('/sessions', {
     method: 'POST',
-    body: buildPayload(session),
+    body: buildPayload(session, auth),
     headers: { authorization: `Bearer ${auth.jwt}` },
     timeoutMs,
   });
+  if (typeof res?.commitKey === 'string' && /^[0-9a-f]{64}$/.test(res.commitKey) && typeof res.commitKeyVersion === 'number') {
+    rememberCommitKey(auth.jwt, res.commitKey, res.commitKeyVersion);
+  }
 }
 
 // Auth for a submission, renewed when the access token is near or past expiry.
@@ -142,12 +179,7 @@ export async function flushPendingSubmissions(budgetMs: number): Promise<void> {
     if (remaining <= 0) return;
     const perRequest = Math.min(remaining, 1500);
     try {
-      await request<{ ok: true; submittedAt: string }>('/sessions', {
-        method: 'POST',
-        body: buildPayload(session),
-        headers: { authorization: `Bearer ${auth.jwt}` },
-        timeoutMs: perRequest,
-      });
+      await postSession(session, auth, perRequest);
       await updateSession(session.id, { submittedAt: new Date().toISOString() });
     } catch (e) {
       if (e instanceof ApiError) {
