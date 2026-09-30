@@ -50,7 +50,9 @@ export interface Session {
   // Throttle for the hook path's in-progress submits, persisted rather than
   // held in memory like the wrapper's: every hook event is its own process.
   lastProgressSubmitAt?: string;
-  lastProgressSignature?: string;
+  // Deliberately not `lastProgressSignature`: older CLIs saved that before
+  // sending, so it can name a payload the server never received.
+  acceptedProgressSignature?: string;
 }
 
 interface DbSchema {

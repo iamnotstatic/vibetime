@@ -4,7 +4,7 @@ import { isGitRepo, getHeadSha, getDiffStats, getReposDiffStats, baselineRepos, 
 import { refreshAndReap } from './rescore.js';
 import { readConfig } from './config.js';
 import { scoreSession, trackShipEvents } from './score.js';
-import { flushPendingSubmissions, submitInProgress } from './submit.js';
+import { flushPendingSubmissions, submitInProgress, progressSignature } from './submit.js';
 import { reconcileInstall } from './reconcile.js';
 import { commitIdentities } from './auth.js';
 import { TUNABLES, refreshTunables } from './remote-config.js';
@@ -244,25 +244,25 @@ async function onActivity(sessionId: string, cwd: string): Promise<void> {
 
 // Mirrors the wrapper's poller, so a desktop session counts the same as a
 // terminal one: the server credits one ship per delta it receives, and
-// submitting only at session end caps a whole day at one. Marked before
-// sending, so a failure waits for the next window instead of looping.
+// submitting only at session end caps a whole day at one. The attempt is
+// marked before sending so a failure waits for the next window instead of
+// looping; the signature only once the server has it, so a failure is resent.
 async function submitProgress(session: Session): Promise<void> {
   if (session.exitCode !== -1 || session.momentum !== 'shipped') return;
 
-  const signature = `${session.commits}:${session.linesAdded}:${session.linesRemoved}:${session.filesTouched}:${(session.shipEvents ?? []).length}`;
-  if (signature === session.lastProgressSignature) return;
+  const signature = progressSignature(session);
+  if (signature === session.acceptedProgressSignature) return;
 
   const last = session.lastProgressSubmitAt ? Date.parse(session.lastProgressSubmitAt) : 0;
   if (last && Date.now() - last < IN_PROGRESS_SUBMIT_INTERVAL_MS) return;
 
   try {
-    await updateSession(session.id, {
-      lastProgressSubmitAt: new Date().toISOString(),
-      lastProgressSignature: signature,
-    });
+    await updateSession(session.id, { lastProgressSubmitAt: new Date().toISOString() });
   } catch { return; }
 
-  await submitInProgress(session, HOOK_NETWORK_BUDGET_MS).catch(() => {});
+  if (await submitInProgress(session, HOOK_NETWORK_BUDGET_MS).catch(() => false)) {
+    try { await updateSession(session.id, { acceptedProgressSignature: signature }); } catch {}
+  }
 }
 
 async function onSessionEnd(sessionId: string, cwd: string): Promise<void> {
