@@ -68,6 +68,7 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
     : { project: cwd.split('/').pop() || 'unknown', branch: 'unknown' };
   const config = readConfig();
   let sessionId: string = randomUUID();
+  let adopted = false;
   let lastActivityAt = startedAt;
   let totalGapMs = 0;
   let idleSince = 0;
@@ -135,6 +136,7 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
           // Adopt the baseline, not just the id: counting from this process's
           // own start is what let the same commits land twice.
           sessionId = claimed.id;
+          adopted = true;
           startedAt = claimed.startedAt;
           if (claimed.repos?.length) repos = claimed.repos;
           eventState = { shipEvents: claimed.shipEvents, eventBaseline: claimed.eventBaseline };
@@ -142,7 +144,7 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
           // idle time the earlier process excluded has to carry over.
           totalGapMs = Math.max(Date.now() - new Date(startedAt).getTime() - claimed.durationSeconds * 1000, 0);
           initial = snapshot(-1);
-          await updateSession(sessionId, initial);
+          await updateSession(sessionId, { ...initial, submittedAt: undefined });
           session = { ...claimed, ...initial };
         }
       } else {
@@ -189,7 +191,11 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
         prevLinesRemoved = snap.linesRemoved;
         prevTreeState = treeState;
       }
-      await updateSession(sessionId, snap);
+      // Another process can end this row while it is live here: the other
+      // terminal on a shared session exiting, or the reaper after a long idle.
+      // Each flushes and marks it submitted, and a mark that survives this
+      // reopen would keep the flush from ever sending what came after.
+      await updateSession(sessionId, { ...snap, submittedAt: undefined });
 
       if (snap.momentum === 'shipped') {
         // Only resubmit when the payload actually changed. An idle open session
@@ -232,7 +238,7 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
     }
 
     const final = snapshot(exitCode);
-    try { await updateSession(sessionId, final); } catch (e) {
+    try { await updateSession(sessionId, { ...final, submittedAt: undefined }); } catch (e) {
       console.error(`  vibe: failed to save session — ${e instanceof Error ? e.message : 'unknown error'}`);
     }
     if (showEndcard) console.log(renderEndcard({ ...session, ...final }));
@@ -262,8 +268,11 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
 
   child.on('error', async (err: NodeJS.ErrnoException) => {
     reportSpawnError(tool, err);
+    await ready;
+    // An adopted session belongs to the terminal still running in it, and a
+    // launch that never started has nothing to add to it or to end.
+    if (adopted) process.exit(127);
     if (err.code === 'ENOENT') {
-      await ready;
       try { await deleteSession(sessionId); } catch {}
     }
     finalize(127, false);
