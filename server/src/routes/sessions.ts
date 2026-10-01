@@ -173,6 +173,11 @@ async function creditedElsewhere(env: Env, uid: number, session: IncomingSession
 // another session was already paid for: the same user and project, overlapping
 // in time, with an event baseline equal to these exact stats. Real parallel
 // work on different commits does not produce four identical numbers.
+//
+// Hook clients before 0.14.0 report an open session's end as its start, so a
+// twin started earlier looked finished before this one began. For exactly
+// that shape the last submit says when it was last alive; anything else keeps
+// its real end, since a session flushed late is not one that ran late.
 async function paidToTwin(env: Env, uid: number, session: IncomingSession, stats: Stats): Promise<boolean> {
   const latest = new Date(Math.max(Date.parse(session.endedAt), Date.now())).toISOString();
   const twin = await env.DB.prepare(
@@ -180,7 +185,8 @@ async function paidToTwin(env: Env, uid: number, session: IncomingSession, stats
       WHERE s.user_github_id = ? AND s.project_hash = ? AND s.id <> ?
         AND s.event_baseline_commits = ? AND s.event_baseline_lines_added = ?
         AND s.event_baseline_lines_removed = ? AND s.event_baseline_files = ?
-        AND s.started_at <= ? AND s.ended_at >= ?
+        AND s.started_at <= ?
+        AND (CASE WHEN s.ended_at = s.started_at THEN s.submitted_at ELSE s.ended_at END) >= ?
         AND EXISTS (SELECT 1 FROM ship_events e WHERE e.session_id = s.id)
       LIMIT 1`,
   ).bind(
