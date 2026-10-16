@@ -1,5 +1,6 @@
 import { join } from 'node:path';
-import { readFileSync, writeFileSync, renameSync, mkdirSync, rmdirSync, unlinkSync, statSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, renameSync, copyFileSync, mkdirSync, rmdirSync, unlinkSync, statSync, existsSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { VIBE_DIR, ensureVibeDir, readConfig } from './config.js';
 import { TUNABLES } from './remote-config.js';
 import { scoreReaped, type MomentumTier } from './score.js';
@@ -73,7 +74,6 @@ interface DbSchema {
 export const INACTIVITY_TIMEOUT_MS = TUNABLES.inactivityTimeoutMs;
 
 const DB_PATH = join(VIBE_DIR, 'sessions.json');
-const TMP_PATH = DB_PATH + '.tmp';
 const LOCK_DIR = join(VIBE_DIR, 'sessions.lock');
 const LOCK_STALE_MS = 10_000;
 
@@ -84,18 +84,39 @@ function acquireLock(retried = false): boolean {
     return true;
   } catch {
     if (retried) return false;
-    // lock exists — check if stale
-    try {
-      const pidFile = join(LOCK_DIR, 'pid');
-      if (existsSync(pidFile)) {
-        const stat = statSync(pidFile);
-        if (Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
-          releaseLock();
-          return acquireLock(true);
-        }
-      }
-    } catch {}
+    if (lockIsStale()) {
+      releaseLock();
+      return acquireLock(true);
+    }
     return false;
+  }
+}
+
+// A holder killed between mkdir and writing its pid, or between removing its
+// pid and the dir, leaves a lock with no pid in it. That one has to age out by
+// the dir itself, or every later write takes the unlocked fallback for good.
+function lockIsStale(): boolean {
+  const pidFile = join(LOCK_DIR, 'pid');
+  try {
+    const stat = statSync(pidFile);
+    if (Date.now() - stat.mtimeMs > LOCK_STALE_MS) return true;
+    const pid = Number(readFileSync(pidFile, 'utf-8'));
+    return Number.isInteger(pid) && pid > 0 && !processExists(pid);
+  } catch {}
+  try {
+    return Date.now() - statSync(LOCK_DIR).mtimeMs > LOCK_STALE_MS;
+  } catch {
+    return false;
+  }
+}
+
+function processExists(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // EPERM: alive, just not ours to signal.
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
   }
 }
 
@@ -111,15 +132,21 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// Whether this process holds the lock right now. Every locked callback is
+// synchronous, so nothing else in the process can run while it is set.
+let lockHeld = false;
+
 async function withLock<T>(fn: () => T): Promise<T> {
   const maxRetries = 20;
   const retryMs = 5;
 
   for (let i = 0; i < maxRetries; i++) {
     if (acquireLock()) {
+      lockHeld = true;
       try {
         return fn();
       } finally {
+        lockHeld = false;
         releaseLock();
       }
     }
@@ -139,9 +166,11 @@ function sleepSync(ms: number): void {
 function withLockSync<T>(fn: () => T): T {
   for (let i = 0; i < 20; i++) {
     if (acquireLock()) {
+      lockHeld = true;
       try {
         return fn();
       } finally {
+        lockHeld = false;
         releaseLock();
       }
     }
@@ -154,24 +183,78 @@ function readDb(): DbSchema {
   ensureVibeDir();
   if (!existsSync(DB_PATH)) return { sessions: [] };
 
+  let raw = '';
   try {
-    const raw = readFileSync(DB_PATH, 'utf-8');
+    raw = readFileSync(DB_PATH, 'utf-8');
     const data = JSON.parse(raw);
     if (Array.isArray(data.sessions)) return data;
     return { sessions: [] };
   } catch {
     const timestamp = Date.now();
     const corruptPath = `${DB_PATH}.corrupt.${timestamp}`;
+    const recovered = recoverDb(raw);
+    if (recovered) {
+      // Repaired only under the lock: an unlocked reader rewriting the file
+      // could land after a locked writer and undo its write. Copied rather
+      // than moved, so the repair replaces the file in one rename and no
+      // reader ever finds it missing.
+      if (lockHeld) {
+        try {
+          copyFileSync(DB_PATH, corruptPath);
+          writeDb(recovered);
+          console.error(`  vibe: sessions.json was damaged, recovered ${recovered.sessions.length} sessions, original kept at ${corruptPath}`);
+        } catch {}
+      }
+      return recovered;
+    }
     try { renameSync(DB_PATH, corruptPath); } catch {}
     console.error(`  vibe: sessions.json was corrupted, moved to ${corruptPath}`);
     return { sessions: [] };
   }
 }
 
+// Two writers through one file leave the shorter document whole with the tail
+// of the longer one after it. JSON cannot continue past the brace that closes
+// its top-level object, so that brace ends the only prefix that can parse.
+function recoverDb(raw: string): DbSchema | null {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (c === '\\') escaped = true;
+      else if (c === '"') inString = false;
+    } else if (c === '"') {
+      inString = true;
+    } else if (c === '{' || c === '[') {
+      depth++;
+    } else if ((c === '}' || c === ']') && --depth === 0) {
+      try {
+        const data = JSON.parse(raw.slice(0, i + 1));
+        return Array.isArray(data?.sessions) ? data : null;
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
 function writeDb(data: DbSchema): void {
   ensureVibeDir();
-  writeFileSync(TMP_PATH, JSON.stringify(data, null, 2) + '\n');
-  renameSync(TMP_PATH, DB_PATH);
+  // A tmp file per write, never shared: writers that fell back to running
+  // unlocked once wrote through one sessions.json.tmp, interleaving their
+  // bytes into a single file that one of them then renamed into place.
+  const tmp = `${DB_PATH}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
+  try {
+    writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n');
+    renameSync(tmp, DB_PATH);
+  } catch (err) {
+    try { unlinkSync(tmp); } catch {}
+    throw err;
+  }
 }
 
 export async function addSession(session: Session): Promise<void> {
