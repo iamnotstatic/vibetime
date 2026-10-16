@@ -21,7 +21,8 @@
     "gemini",
     "aster",
     "opencode",
-    "cursor"
+    "cursor",
+    "zcode"
   ],
   "author": "iamnotstatic",
   "license": "MIT",

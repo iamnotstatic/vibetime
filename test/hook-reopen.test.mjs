@@ -293,6 +293,29 @@ test('Cursor payloads without cwd still open a session from workspace_roots', as
   assert.equal(session.exitCode, -1);
 });
 
+test('ZCode sessions are keyed by the uuid inside their sess_ id', async (t) => {
+  freshDb();
+  const repo = initRepo(scratch(t), 'repo');
+  const id = randomUUID();
+
+  await hook('session-start', `sess_${id}`, repo, 'zcode');
+  await hook('activity', `sess_${id}`, repo, 'zcode');
+
+  const sessions = getSessions();
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].id, id);
+  assert.equal(sessions[0].tool, 'zcode');
+});
+
+test('ZCode sub-agents do not open sessions of their own', async (t) => {
+  freshDb();
+  const repo = initRepo(scratch(t), 'repo');
+
+  await hook('session-start', `sess_subagent_agent_${randomUUID()}`, repo, 'zcode');
+
+  assert.equal(getSessions().length, 0);
+});
+
 test('imported Claude hooks running inside Cursor are tagged as cursor', async (t) => {
   freshDb();
   const repo = initRepo(scratch(t), 'repo');

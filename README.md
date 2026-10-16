@@ -6,7 +6,7 @@
 
 <p align="center">Track what you actually ship with AI.</p>
 
-<p align="center">Vibetime wraps Claude Code, Codex, Gemini, Aster, and Opencode and prints a session summary every time you're done. Cursor Desktop is tracked through session hooks. No config, no daemon, no account by default.</p>
+<p align="center">Vibetime wraps Claude Code, Codex, Gemini, Aster, and Opencode and prints a session summary every time you're done. Cursor Desktop and ZCode are tracked through session hooks. No config, no daemon, no account by default.</p>
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/iamnotstatic/vibetime/main/assets/status.png" alt="vibe status" />
@@ -25,13 +25,13 @@ vibe
 source ~/.zshrc   # or ~/.bashrc / ~/.config/fish/config.fish
 ```
 
-Running `vibe` with nothing after it sets up everything: shell hooks that wrap `claude`, `codex`, `gemini`, `aster`, and `opencode` in the terminal, plus desktop session hooks for the Claude Code, Codex, and Cursor apps (see [Desktop apps](#desktop-apps)). The tools work exactly the same — Vibetime tracks your git state while you code and prints the endcard when you're done.
+Running `vibe` with nothing after it sets up everything: shell hooks that wrap `claude`, `codex`, `gemini`, `aster`, and `opencode` in the terminal, plus desktop session hooks for the Claude Code, Codex, Cursor, and ZCode apps (see [Desktop apps](#desktop-apps)). The tools work exactly the same — Vibetime tracks your git state while you code and prints the endcard when you're done.
 
 Fish, Bash, and Zsh are detected automatically, and the matching syntax is written to that shell's rc file. `vibe init` does the same thing explicitly, and re-running it is always safe.
 
 ## What you get
 
-Every time you close a Claude Code, Codex, Gemini, Aster, Opencode, or Cursor session:
+Every time you close a Claude Code, Codex, Gemini, Aster, Opencode, Cursor, or ZCode session:
 
 ```
 ╭─────────────────────────────────────────────╮
@@ -66,17 +66,18 @@ Sessions are scored by what happened in git:
 
 ## Desktop apps
 
-The Claude Code, Codex, and Cursor **Desktop** apps never run the wrapped terminal commands, so the shell wrapper can't see them. Vibetime tracks them through session hooks instead — `vibe init` sets these up automatically. If you ran `vibe init` before desktop support existed, either re-run it or use:
+The Claude Code, Codex, Cursor, and ZCode **Desktop** apps never run the wrapped terminal commands, so the shell wrapper can't see them. Vibetime tracks them through session hooks instead — `vibe init` sets these up automatically. If you ran `vibe init` before desktop support existed, either re-run it or use:
 
 ```
 vibe hooks install
 ```
 
-Either way it registers session hooks in `~/.claude/settings.json`, `~/.codex/hooks.json`, and `~/.cursor/hooks.json` for all three apps, including one you haven't installed yet: hooks are inert config until the app exists, so if you switch apps months from now you're already tracked without re-running anything. Hooks Vibetime didn't create are never touched. From then on, every Desktop session is recorded and shows up in `vibe status`, `vibe log`, `vibe share`, and the leaderboard, exactly like a terminal session.
+Either way it registers session hooks in `~/.claude/settings.json`, `~/.codex/hooks.json`, `~/.cursor/hooks.json`, and `~/.zcode/cli/config.json` for all four apps, including one you haven't installed yet: hooks are inert config until the app exists, so if you switch apps months from now you're already tracked without re-running anything. Hooks Vibetime didn't create are never touched. From then on, every Desktop session is recorded and shows up in `vibe status`, `vibe log`, `vibe share`, and the leaderboard, exactly like a terminal session.
 
 - **Claude Code** hot-reloads its settings: just open a new Desktop session.
 - **Codex** loads the hooks at your next session. Depending on your Codex version it may first ask you to review and trust them; if codex sessions don't show up in `vibe status`, that's the cause: open Settings → Hooks in the desktop app (or run `/hooks` in the CLI), review the vibe hooks, and trust them. Needs a Codex build from May 2026 or later (when hooks became generally available). Tested on macOS and Linux. Windows is untested: the hooks include a Windows command variant, reports welcome. If Codex imported your Claude Code hooks, `vibe hooks install` replaces those copies with the Codex versions, which tag sessions as Codex and fit its 3-second SessionEnd limit.
 - **Cursor** hot-reloads `~/.cursor/hooks.json`: just open a new Agent session. Confirm the vibe hooks in Customize → Hooks if sessions don't show up. Cursor can also import Claude Code hooks when third-party configs are enabled; those copies are tagged as Cursor, not Claude. User-level hooks don't run in cloud agents. Tested on macOS. Windows and Linux reports welcome.
+- **ZCode** reads its hooks from `~/.zcode/cli/config.json` when it starts and keeps new hooks switched off: quit and reopen ZCode, then open Settings → Hooks and switch on the four vibe hooks under Installed. Leave the copies of your Claude Code hooks under Legacy alone; imported, they would tag ZCode sessions as Claude. If the pinned Node path changes and `vibe hooks install` rewrites the hooks, ZCode turns them off again until you switch them back on. It has no session-end event, so a ZCode session closes after 30 idle minutes, the same way an abandoned Desktop session does. ZCode sub-agents count toward the session that started them rather than opening sessions of their own.
 
 Duration is measured the same way as the terminal: active coding time, with idle gaps over 30 minutes excluded.
 
@@ -152,7 +153,7 @@ vibe leaderboard             ships, this week
 vibe config show             current settings
 vibe config set handle <name> set your @handle (shown on share cards)
 vibe config add-tool <name>  track a new AI CLI tool
-vibe hooks install           track Claude Code, Codex, and Cursor Desktop sessions
+vibe hooks install           track Claude Code, Codex, Cursor, and ZCode desktop sessions
 vibe hooks uninstall         stop tracking Desktop sessions
 vibe uninstall               remove shell hooks and desktop hooks
 ```
@@ -166,7 +167,7 @@ vibe uninstall
 npm uninstall -g vibetime-cli
 ```
 
-`vibe uninstall` removes everything `vibe init` set up: the shell hooks in your rc file and Vibetime's desktop hooks in `~/.claude/settings.json`, `~/.codex/hooks.json`, and `~/.cursor/hooks.json`, preserving hooks it didn't create. To stop desktop tracking alone, run `vibe hooks uninstall`. Your session data in `~/.vibe/` is preserved — delete it manually if you want a clean removal.
+`vibe uninstall` removes everything `vibe init` set up: the shell hooks in your rc file and Vibetime's desktop hooks in `~/.claude/settings.json`, `~/.codex/hooks.json`, `~/.cursor/hooks.json`, and `~/.zcode/cli/config.json`, preserving hooks it didn't create. To stop desktop tracking alone, run `vibe hooks uninstall`. Your session data in `~/.vibe/` is preserved — delete it manually if you want a clean removal.
 
 ## Privacy
 
@@ -174,7 +175,7 @@ Vibetime has no telemetry and no account by default. Everything stays on your ma
 
 It reads **git metadata only** — commit counts, line counts, file counts. It never reads file contents, environment variables, API keys, or anything you type into the wrapped tool. The AI CLI's stdin/stdout are passed straight through via `spawn` with `stdio: 'inherit'`.
 
-The Claude Code, Codex, and Cursor Desktop hooks are held to the same standard: they read only the session id and working directory from the hook payload — never the transcript, your prompts, or the model's output — and derive the same git metadata from there.
+The Claude Code, Codex, Cursor, and ZCode hooks are held to the same standard: they read only the session id and working directory from the hook payload — never the transcript, your prompts, or the model's output — and derive the same git metadata from there.
 
 All data is stored locally in `~/.vibe/`. If you've signed in to the leaderboard, see the section above for the exact fields submitted.
 

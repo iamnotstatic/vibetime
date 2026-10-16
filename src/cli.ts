@@ -13,6 +13,7 @@ import { isInstalled } from './reconcile.js';
 import { installClaudeHooks, removeClaudeHooks } from './claude-hooks.js';
 import { installCodexHooks, removeCodexHooks } from './codex-hooks.js';
 import { installCursorHooks, removeCursorHooks } from './cursor-hooks.js';
+import { installZcodeHooks, removeZcodeHooks } from './zcode-hooks.js';
 import { handleHook, parseHookTool } from './hook.js';
 import { login, logout, readAuth, needsLogin, offerLogin } from './auth.js';
 import { fetchLeaderboard } from './leaderboard.js';
@@ -46,11 +47,12 @@ async function runInit(): Promise<void> {
   setInstallOptOut({ shell: false, desktop: false });
   initShellHooks();
   // Unconditional, like the shell functions: hooks are inert config until the
-  // app exists, so someone who installs Claude Code, Codex, or Cursor months
+  // app exists, so someone who installs Claude Code, Codex, Cursor, or ZCode months
   // from now is already tracked without remembering to re-run init.
   installClaudeHooks();
   installCodexHooks();
   installCursorHooks();
+  installZcodeHooks();
 
   // Setup is the only moment we have a new user's attention, so this is where
   // the leaderboard gets offered. It asks, and it no-ops when it can't.
@@ -117,6 +119,7 @@ program
     removeClaudeHooks();
     removeCodexHooks();
     removeCursorHooks();
+    removeZcodeHooks();
   });
 
 const hooksCmd = program
@@ -125,22 +128,24 @@ const hooksCmd = program
 
 hooksCmd
   .command('install')
-  .description('track Claude Code, Codex, and Cursor Desktop sessions')
+  .description('track Claude Code, Codex, Cursor, and ZCode desktop sessions')
   .action(() => {
     setInstallOptOut({ desktop: false });
     installClaudeHooks();
     installCodexHooks();
     installCursorHooks();
+    installZcodeHooks();
   });
 
 hooksCmd
   .command('uninstall')
-  .description('stop tracking Claude Code, Codex, and Cursor Desktop sessions')
+  .description('stop tracking Claude Code, Codex, Cursor, and ZCode desktop sessions')
   .action(() => {
     setInstallOptOut({ desktop: true });
     removeClaudeHooks();
     removeCodexHooks();
     removeCursorHooks();
+    removeZcodeHooks();
   });
 
 program
@@ -306,7 +311,7 @@ program
     await wrapTool(tool, args);
   });
 
-// Invoked by Claude Code, Codex, or Cursor hooks with the event payload on
+// Invoked by Claude Code, Codex, Cursor, or ZCode hooks with the event payload on
 // stdin. Must stay silent on stdout (SessionStart stdout is fed to the model)
 // except for the codex Stop response, and always exit the moment the work is
 // done — a lingering handle (e.g. a submit's keep-alive socket) must never hold
@@ -314,7 +319,7 @@ program
 program
   .command('__hook', { hidden: true })
   .argument('<event>', 'session-start | activity | session-end')
-  .option('--tool <tool>', 'claude | codex | cursor', 'claude')
+  .option('--tool <tool>', 'claude | codex | cursor | zcode', 'claude')
   .option('--respond-json', 'write an empty JSON hook response')
   .helpOption(false)
   .action(async (event: string, opts: { tool: string; respondJson?: boolean }) => {
