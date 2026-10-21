@@ -47,11 +47,15 @@ function ownedByAnotherSession(session: Session, all: Session[]): boolean {
 // and the commit is never read: the session is submitted with zero. Refreshing
 // before the reaper runs means the work is recorded whether or not you came back
 // to end it cleanly.
-export async function refreshRecentSessions(): Promise<void> {
+//
+// Returns how many closed sessions it changed: those are back in the submit
+// queue, while an open one waits for its own end.
+export async function refreshRecentSessions(): Promise<number> {
   const now = Date.now();
   const all = getSessions();
   const config = readConfig();
   const identities = commitIdentities();
+  let reopened = 0;
 
   for (const session of all) {
     // Sessions from an older CLI have no repo baselines to measure against.
@@ -76,12 +80,16 @@ export async function refreshRecentSessions(): Promise<void> {
       // resubmitting is safe.
       submittedAt: undefined,
     });
+    if (!open) reopened++;
   }
+  return reopened;
 }
 
 // Refresh first, then reap: a session the reaper is about to close carries the
 // work it actually did rather than whatever the last hook event happened to see.
-export async function refreshAndReap(): Promise<void> {
-  await refreshRecentSessions();
-  await reapOrphanedSessions();
+// Returns how many sessions it closed or corrected after close, all of them now
+// waiting to be submitted.
+export async function refreshAndReap(): Promise<number> {
+  const refreshed = await refreshRecentSessions();
+  return refreshed + (await reapOrphanedSessions());
 }

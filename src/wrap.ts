@@ -120,8 +120,10 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
   // repo is still owed the grace-window work, and an open session here would
   // claim it instead. Never rejects — a fast-exiting tool must still find its
   // session to finalize.
+  let startupFlush: Promise<void> = Promise.resolve();
   const ready: Promise<Session> = (async () => {
-    await refreshAndReap().catch(() => {});
+    const settled = await refreshAndReap().catch(() => 0);
+    if (settled) startupFlush = flushPendingSubmissions(IN_PROGRESS_SUBMIT_BUDGET_MS).catch(() => {});
     let initial = snapshot(-1);
     let session: Session = {
       id: sessionId, tool, project, branch, startedAt,
@@ -163,7 +165,9 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
   // periodic update while the tool runs — track activity for duration accuracy
   let lastInProgressSubmitAt = 0;
   let acceptedSignature = '';
-  const poll = setInterval(async () => {
+  let cleaned = false;
+  let pollInFlight: Promise<void> | undefined;
+  async function pollOnce(): Promise<void> {
     try {
       const session = await ready;
       const now = Date.now();
@@ -197,34 +201,37 @@ export async function wrapTool(tool: string, args: string[]): Promise<void> {
       // reopen would keep the flush from ever sending what came after.
       await updateSession(sessionId, { ...snap, submittedAt: undefined });
 
-      if (snap.momentum === 'shipped') {
-        // Only resubmit when the payload actually changed. An idle open session
-        // otherwise reposts an identical row every 5 minutes forever, and a
-        // developer running a dozen sessions at once burned the server's rate
-        // guard on nothing, losing the submissions that did matter.
-        // A failed send leaves the signature unaccepted, so the next window
-        // resends it; the throttle alone keeps that from looping.
+      const due = lastInProgressSubmitAt === 0 || Date.now() - lastInProgressSubmitAt >= IN_PROGRESS_SUBMIT_INTERVAL_MS;
+      if (due) {
+        lastInProgressSubmitAt = Date.now();
+        // Finished work retries even while this tool has no new ship to send.
+        const deadline = Date.now() + IN_PROGRESS_SUBMIT_BUDGET_MS;
+        await flushPendingSubmissions(IN_PROGRESS_SUBMIT_BUDGET_MS).catch(() => {});
+        if (cleaned) return;
         const signature = progressSignature(snap);
-        const due = lastInProgressSubmitAt === 0 || Date.now() - lastInProgressSubmitAt >= IN_PROGRESS_SUBMIT_INTERVAL_MS;
-        if (due && signature !== acceptedSignature) {
-          lastInProgressSubmitAt = Date.now();
-          submitInProgress({ ...session, ...snap }, IN_PROGRESS_SUBMIT_BUDGET_MS).then(
-            (settled) => { if (settled) acceptedSignature = signature; },
-            () => {},
-          );
+        const remaining = deadline - Date.now();
+        if (remaining > 0 && snap.momentum === 'shipped' && signature !== acceptedSignature) {
+          const settled = await submitInProgress({ ...session, ...snap }, remaining).catch(() => false);
+          if (settled) acceptedSignature = signature;
         }
       }
     } catch {}
+  }
+  const poll = setInterval(() => {
+    if (cleaned || pollInFlight) return;
+    pollInFlight = pollOnce().finally(() => { pollInFlight = undefined; });
   }, POLL_INTERVAL_MS);
   poll.unref();
 
   // single cleanup path for all exit scenarios
-  let cleaned = false;
   async function finalize(exitCode: number, showEndcard: boolean): Promise<void> {
     clearInterval(poll);
-    if (cleaned) process.exit(exitCode);
+    if (cleaned) return;
     cleaned = true;
     const session = await ready;
+    // A queue drain may hold submit.lock as the child exits. Let our own
+    // bounded background work finish before the final snapshot and flush.
+    await Promise.all([startupFlush, pollInFlight]);
 
     // accumulate any trailing idle gap (only when git provides activity signals)
     const now = Date.now();

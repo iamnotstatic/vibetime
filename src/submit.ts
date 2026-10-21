@@ -1,3 +1,6 @@
+import { mkdirSync, rmdirSync, readFileSync, writeFileSync, statSync, unlinkSync } from 'node:fs';
+import { join } from 'node:path';
+import { VIBE_DIR, ensureVibeDir } from './config.js';
 import { createHash, createHmac } from 'node:crypto';
 import { getSessions, updateSession, type Session } from './db.js';
 import { readAuth, markSignedOut, refreshAuth, jwtExpiresAtMs, rememberCommitKey, type AuthRecord } from './auth.js';
@@ -141,9 +144,9 @@ export async function submitInProgress(session: Session, budgetMs = 1500): Promi
 // Deduped by id: parallel hook processes could both pass the existence check
 // and write the same session twice, and a flush would then upload the empty
 // copy over the real one. More commits wins, longer session breaks the tie.
-function pendingSessions(): Session[] {
+function pendingSessions(sessions = getSessions()): Session[] {
   const byId = new Map<string, Session>();
-  for (const s of getSessions()) {
+  for (const s of sessions) {
     if (s.submittedAt || s.exitCode === -1 || s.durationSeconds < 60) continue;
     const prev = byId.get(s.id);
     if (!prev || s.commits > prev.commits || (s.commits === prev.commits && s.durationSeconds > prev.durationSeconds)) {
@@ -162,54 +165,112 @@ export function pendingSubmissionCount(): number {
   return pendingSessions().length;
 }
 
+const FLUSH_LOCK = join(VIBE_DIR, 'submit.lock');
+const FLUSH_BREAK = FLUSH_LOCK + '.break';
+
+function staleFlushLock(): boolean {
+  try {
+    const pid = Number(readFileSync(join(FLUSH_LOCK, 'pid'), 'utf8'));
+    if (Number.isInteger(pid) && pid > 0) {
+      try { process.kill(pid, 0); return false; }
+      catch (err) { return (err as NodeJS.ErrnoException).code === 'ESRCH'; }
+    }
+  } catch {}
+  try { return Date.now() - statSync(FLUSH_LOCK).mtimeMs > 10_000; }
+  catch { return false; }
+}
+
+function releaseFlushLock(): void {
+  try { unlinkSync(join(FLUSH_LOCK, 'pid')); } catch {}
+  try { rmdirSync(FLUSH_LOCK); } catch {}
+}
+
+function claimFlushLock(retried = false): boolean {
+  try { mkdirSync(FLUSH_LOCK); }
+  catch {
+    if (retried || !staleFlushLock()) return false;
+    try { mkdirSync(FLUSH_BREAK); } catch { return false; }
+    try {
+      if (staleFlushLock()) releaseFlushLock();
+      return claimFlushLock(true);
+    } finally {
+      try { rmdirSync(FLUSH_BREAK); } catch {}
+    }
+  }
+  try {
+    writeFileSync(join(FLUSH_LOCK, 'pid'), String(process.pid));
+    return true;
+  } catch {
+    releaseFlushLock();
+    return false;
+  }
+}
+
 export async function flushPendingSubmissions(budgetMs: number): Promise<void> {
   const deadline = Date.now() + budgetMs;
+  if (budgetMs <= 0 || pendingSessions().length === 0 || !readAuth()) return;
+  ensureVibeDir();
+  // Nonblocking: another agent is draining the same queue. Its database writes
+  // remain short; never hold sessions.lock across a network request.
+  if (!claimFlushLock()) return;
+  try {
+    await flushPendingLocked(deadline);
+  } finally {
+    releaseFlushLock();
+  }
+}
 
-  // Renewed here when near expiry; a failed renewal falls through with the
-  // current jwt, which may still be valid.
+async function flushPendingLocked(deadline: number): Promise<void> {
+  // Read after claiming the lock, so a waiter never sends an already-drained
+  // snapshot. Empty queues do not renew auth or contact the network.
+  const pending = pendingSessions().sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+  const budgetMs = deadline - Date.now();
+  if (pending.length === 0 || budgetMs <= 0) return;
+
   let auth: AuthRecord | null = await currentAuth(budgetMs);
   if (!auth) return;
 
-  const pending = pendingSessions().sort((a, b) => a.startedAt.localeCompare(b.startedAt));
-
   let renewedOnce = false;
   for (let i = 0; i < pending.length; i++) {
-    const session = pending[i];
+    // A hook can reopen, correct or delete a queued session while an earlier
+    // request is in flight. Send its current settled version, if it still has one.
+    const snapshots = getSessions().filter((s) => s.id === pending[i].id);
+    const session = pendingSessions(snapshots)[0];
+    if (!session) continue;
     const remaining = deadline - Date.now();
     if (remaining <= 0) return;
     const perRequest = Math.min(remaining, 1500);
     try {
       await postSession(session, auth, perRequest);
-      await updateSession(session.id, { submittedAt: new Date().toISOString() });
+      await updateSession(session.id, { submittedAt: new Date().toISOString() }, snapshots);
     } catch (e) {
       if (e instanceof ApiError) {
         if (e.status === 401) {
           if (auth.refreshToken && !renewedOnce) {
             renewedOnce = true;
-            const renewed = await refreshAuth(auth, Math.min(deadline - Date.now(), 3000));
-            if (!renewed) return; // refresh rejected: local auth already cleared
+            const renewalBudget = deadline - Date.now();
+            if (renewalBudget <= 0) return;
+            const renewed = await refreshAuth(auth, Math.min(renewalBudget, 3000));
+            if (!renewed) return;
             if (renewed.jwt !== auth.jwt) {
               auth = renewed;
-              i--; // retry this session with the fresh token
+              i--;
               continue;
             }
-            return; // couldn't reach the server to renew: retry next flush
+            return;
           }
-          // no refresh token (pre-v0.7 login) or still 401 after renewing:
-          // drop the token, leave sessions unsubmitted so a fresh login retries them
           markSignedOut();
           return;
         }
         if (e.status === 400) {
-          // validation failure: nothing about waiting will fix this. stop retrying this one.
-          await updateSession(session.id, { submittedAt: new Date().toISOString() });
+          // Settle only the rejected snapshot, never a correction made while
+          // it was in flight. The corrected payload may be valid.
+          await updateSession(session.id, { submittedAt: new Date().toISOString() }, snapshots);
           continue;
         }
-        // 403 (account too new), 429 (rate limit), 5xx: retry later
-        return;
+        return; // 403, 429 and 5xx remain pending for the next attempt.
       }
-      // network error: retry later
-      return;
+      return; // network or local persistence failure: leave work pending.
     }
   }
 }

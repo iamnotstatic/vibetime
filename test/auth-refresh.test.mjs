@@ -129,13 +129,21 @@ test('flush renews once on 401 and retries the submission', async () => {
   assert.ok(getSessions().find((s) => s.id === id).submittedAt);
 });
 
-test('flush renews proactively when the jwt is close to expiry', async () => {
+test('flush renews proactively when pending work has a jwt close to expiry', async () => {
   rmSync(join(scratch, 'sessions.json'), { force: true });
   const auth = baseAuth({ jwt: fakeJwt(3600) }); // expires within the 48h window
   writeAuthFile(auth);
   const newJwt = fakeJwt(7 * 24 * 3600);
   handlers['/auth/refresh'] = () => [200, { jwt: newJwt, handle: 't', avatarUrl: null }];
 
+  await addSession({
+    id: randomUUID(), tool: 'claude', project: 'repo', branch: 'main',
+    startedAt: new Date(Date.now() - 600_000).toISOString(),
+    endedAt: new Date().toISOString(), durationSeconds: 300,
+    commits: 1, linesAdded: 10, linesRemoved: 0, filesTouched: 1,
+    momentum: 'shipped', exitCode: 0,
+  });
+  handlers['/sessions'] = () => [200, { ok: true, submittedAt: new Date().toISOString() }];
   await flushPendingSubmissions(10_000);
   assert.equal(readAuth().jwt, newJwt);
 });
@@ -210,4 +218,15 @@ test('a fresh login clears the signed-out state', async () => {
   writeAuthFile(baseAuth()); // what login() writes
   assert.equal(needsLogin(), false);
   assert.ok(readAuth());
+});
+
+
+test('an empty settled queue makes no network request even when auth is near expiry', async () => {
+  rmSync(join(scratch, 'sessions.json'), { force: true });
+  const auth = baseAuth({ jwt: fakeJwt(3600) });
+  writeAuthFile(auth);
+  calls.length = 0;
+  await flushPendingSubmissions(1500);
+  assert.deepEqual(calls, []);
+  assert.equal(readAuth().jwt, auth.jwt);
 });

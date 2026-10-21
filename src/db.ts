@@ -206,12 +206,16 @@ export async function claimSession(
   });
 }
 
-export async function updateSession(id: string, updates: Partial<Session>): Promise<void> {
+export async function updateSession(id: string, updates: Partial<Session>, expected?: Session[]): Promise<void> {
   await withLock(() => {
     const data = readDb();
-    const session = data.sessions.find((s) => s.id === id);
-    if (session) {
-      Object.assign(session, updates);
+    const matches = data.sessions.filter((s) => s.id === id);
+    // An upload settles the complete unchanged group, including duplicates
+    // from older CLIs. Never let an old response settle a corrected version.
+    if (expected && JSON.stringify(matches) !== JSON.stringify(expected)) return;
+    const targets = expected ? matches : matches.slice(0, 1);
+    if (targets.length) {
+      for (const session of targets) Object.assign(session, updates);
       writeDb(data);
     }
   });
@@ -236,11 +240,12 @@ export async function deleteSession(id: string): Promise<void> {
 // an idle desktop session alive.
 const HEARTBEAT_MS = Math.max(3 * TUNABLES.pollIntervalMs, 2 * 60_000);
 
-export async function reapOrphanedSessions(): Promise<void> {
-  await withLock(() => {
+// Returns how many sessions it finalized, so a caller can send them on.
+export async function reapOrphanedSessions(): Promise<number> {
+  return withLock(() => {
     const data = readDb();
     const now = Date.now();
-    let changed = false;
+    let reaped = 0;
 
     for (const s of data.sessions) {
       if (s.exitCode !== -1) continue;
@@ -268,10 +273,11 @@ export async function reapOrphanedSessions(): Promise<void> {
         s.reapedAt = s.endedAt;
         s.momentum = scoreReaped(s, readConfig());
       }
-      changed = true;
+      reaped++;
     }
 
-    if (changed) writeDb(data);
+    if (reaped) writeDb(data);
+    return reaped;
   });
 }
 
