@@ -9,12 +9,12 @@ import { reconcileInstall } from './reconcile.js';
 import { commitIdentities } from './auth.js';
 import { TUNABLES, refreshTunables } from './remote-config.js';
 
-// Claude Code, Codex, and Cursor deliver a JSON payload on stdin to every hook
+// Claude Code, Codex, Cursor, and ZCode deliver a JSON payload on stdin to every hook
 // command. We read only the fields below — never the transcript, prompts, or
 // model output — so hook-tracked sessions stay within vibetime's "git metadata
 // only" privacy model.
 interface HookInput {
-  session_id?: string;
+  session_id?: string; // ZCode: sess_<uuid>, sub-agents sess_subagent_agent_<uuid>
   conversation_id?: string; // Cursor: same as session_id
   cwd?: string;
   workspace_roots?: string[]; // Cursor: workspace folders (cwd is often absent)
@@ -36,10 +36,10 @@ const IN_PROGRESS_SUBMIT_INTERVAL_MS = TUNABLES.inProgressSubmitIntervalMs;
 const HOOK_NETWORK_BUDGET_MS = 1200;
 
 type HookEvent = 'session-start' | 'activity' | 'session-end';
-export type HookTool = 'claude' | 'codex' | 'cursor';
+export type HookTool = 'claude' | 'codex' | 'cursor' | 'zcode';
 
 export function parseHookTool(value: string): HookTool {
-  if (value === 'codex' || value === 'cursor') return value;
+  if (value === 'codex' || value === 'cursor' || value === 'zcode') return value;
   return 'claude';
 }
 
@@ -52,8 +52,13 @@ function resolveTool(tool: HookTool, input: HookInput): HookTool {
   return 'claude';
 }
 
+// ZCode prefixes its session ids, so the uuid inside is the id. Its sub-agents
+// carry a longer prefix and fail the uuid check, which keeps a sub-agent from
+// opening a session of its own alongside the one that spawned it.
+const ZCODE_SESSION_RE = /^sess_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+
 function resolveSessionId(input: HookInput): string | undefined {
-  if (input.session_id) return input.session_id;
+  if (input.session_id) return input.session_id.replace(ZCODE_SESSION_RE, '$1');
   if (input.conversation_id) return input.conversation_id;
   return undefined;
 }

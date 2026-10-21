@@ -3,6 +3,7 @@ import { hasShellHooks, reconcileShellHooks } from './init.js';
 import { installClaudeHooks, hasClaudeHooks } from './claude-hooks.js';
 import { installCodexHooks, hasCodexHooks } from './codex-hooks.js';
 import { installCursorHooks, hasCursorHooks } from './cursor-hooks.js';
+import { installZcodeHooks, hasZcodeHooks } from './zcode-hooks.js';
 
 // Repair the install on paths that always run.
 //
@@ -19,7 +20,7 @@ import { installCursorHooks, hasCursorHooks } from './cursor-hooks.js';
 export function reconcileInstall(): void {
   try {
     const config = readConfig();
-    const installed = hasShellHooks() || hasClaudeHooks() || hasCodexHooks() || hasCursorHooks();
+    const installed = hasShellHooks() || hasClaudeHooks() || hasCodexHooks() || hasCursorHooks() || hasZcodeHooks();
     if (!installed) return;
 
     if (!config.shellHooksOptOut) reconcileShellHooks(config.removedTools ?? []);
@@ -30,6 +31,7 @@ export function reconcileInstall(): void {
       installClaudeHooks(true);
       installCodexHooks(undefined, true);
       installCursorHooks(undefined, true);
+      installZcodeHooks(undefined, true);
     }
   } catch {
     // Repair is best effort. A session must never fail because a config file
@@ -41,7 +43,7 @@ export function reconcileInstall(): void {
 // setting up and showing today.
 export function isInstalled(): boolean {
   try {
-    return hasShellHooks() || hasClaudeHooks() || hasCodexHooks() || hasCursorHooks();
+    return hasShellHooks() || hasClaudeHooks() || hasCodexHooks() || hasCursorHooks() || hasZcodeHooks();
   } catch {
     return false;
   }
