@@ -1,5 +1,6 @@
 import { join } from 'node:path';
-import { readFileSync, writeFileSync, renameSync, mkdirSync, rmdirSync, unlinkSync, statSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, renameSync, copyFileSync, mkdirSync, rmdirSync, unlinkSync, statSync, existsSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { VIBE_DIR, ensureVibeDir, readConfig } from './config.js';
 import { TUNABLES } from './remote-config.js';
 import { scoreReaped, type MomentumTier } from './score.js';
@@ -73,8 +74,8 @@ interface DbSchema {
 export const INACTIVITY_TIMEOUT_MS = TUNABLES.inactivityTimeoutMs;
 
 const DB_PATH = join(VIBE_DIR, 'sessions.json');
-const TMP_PATH = DB_PATH + '.tmp';
 const LOCK_DIR = join(VIBE_DIR, 'sessions.lock');
+const BREAK_DIR = LOCK_DIR + '.break';
 const LOCK_STALE_MS = 10_000;
 
 function acquireLock(retried = false): boolean {
@@ -84,18 +85,44 @@ function acquireLock(retried = false): boolean {
     return true;
   } catch {
     if (retried) return false;
-    // lock exists — check if stale
+    if (!lockIsStale()) return false;
+    // Only one stale-lock remover may run. Recheck after taking this gate:
+    // another process may already have replaced the dead holder with a live one.
+    try { mkdirSync(BREAK_DIR); } catch { return false; }
     try {
-      const pidFile = join(LOCK_DIR, 'pid');
-      if (existsSync(pidFile)) {
-        const stat = statSync(pidFile);
-        if (Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
-          releaseLock();
-          return acquireLock(true);
-        }
-      }
-    } catch {}
+      if (lockIsStale()) releaseLock();
+      return acquireLock(true);
+    } finally {
+      try { rmdirSync(BREAK_DIR); } catch {}
+    }
+  }
+}
+
+// A holder killed between mkdir and writing its pid, or between removing its
+// pid and the dir, leaves a lock with no pid in it. That one has to age out by
+// the dir itself, so later writes can recover after the holder is gone.
+function lockIsStale(): boolean {
+  const pidFile = join(LOCK_DIR, 'pid');
+  try {
+    const stat = statSync(pidFile);
+    const pid = Number(readFileSync(pidFile, 'utf-8'));
+    if (Number.isInteger(pid) && pid > 0) return !processExists(pid);
+    return Date.now() - stat.mtimeMs > LOCK_STALE_MS;
+  } catch {}
+  try {
+    return Date.now() - statSync(LOCK_DIR).mtimeMs > LOCK_STALE_MS;
+  } catch {
     return false;
+  }
+}
+
+function processExists(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // EPERM: alive, just not ours to signal.
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
   }
 }
 
@@ -111,23 +138,28 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// Whether this process holds the lock right now. Every locked callback is
+// synchronous, so nothing else in the process can run while it is set.
+let lockHeld = false;
+
 async function withLock<T>(fn: () => T): Promise<T> {
-  const maxRetries = 20;
-  const retryMs = 5;
+  const maxRetries = 200;
+  const retryMs = 10;
 
   for (let i = 0; i < maxRetries; i++) {
     if (acquireLock()) {
+      lockHeld = true;
       try {
         return fn();
       } finally {
+        lockHeld = false;
         releaseLock();
       }
     }
     await delay(retryMs);
   }
 
-  // fallback: run without lock rather than lose data
-  return fn();
+  throw new Error('vibe: session database is busy; try again');
 }
 
 function sleepSync(ms: number): void {
@@ -135,43 +167,100 @@ function sleepSync(ms: number): void {
 }
 
 // For callers that measure synchronously, like the wrapper's snapshot. Same
-// lock, same fallback.
+// lock, same timeout.
 function withLockSync<T>(fn: () => T): T {
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 200; i++) {
     if (acquireLock()) {
+      lockHeld = true;
       try {
         return fn();
       } finally {
+        lockHeld = false;
         releaseLock();
       }
     }
-    sleepSync(5);
+    sleepSync(10);
   }
-  return fn();
+  throw new Error('vibe: session database is busy; try again');
 }
 
 function readDb(): DbSchema {
   ensureVibeDir();
-  if (!existsSync(DB_PATH)) return { sessions: [] };
-
+  let raw: string;
   try {
-    const raw = readFileSync(DB_PATH, 'utf-8');
-    const data = JSON.parse(raw);
-    if (Array.isArray(data.sessions)) return data;
-    return { sessions: [] };
-  } catch {
-    const timestamp = Date.now();
-    const corruptPath = `${DB_PATH}.corrupt.${timestamp}`;
-    try { renameSync(DB_PATH, corruptPath); } catch {}
-    console.error(`  vibe: sessions.json was corrupted, moved to ${corruptPath}`);
-    return { sessions: [] };
+    raw = readFileSync(DB_PATH, 'utf-8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { sessions: [] };
+    throw err;
   }
+  try {
+    const data = JSON.parse(raw);
+    if (Array.isArray(data?.sessions)) return data;
+  } catch {}
+
+  const recovered = recoverDb(raw);
+  if (lockHeld) {
+    // Back up before a locked caller can replace damaged data. Readers never
+    // rename or repair: that could overwrite an update from a locked writer.
+    const corruptPath = `${DB_PATH}.corrupt.${Date.now()}.${randomBytes(4).toString('hex')}`;
+    copyFileSync(DB_PATH, corruptPath);
+    if (recovered) writeDb(recovered);
+    console.error(`  vibe: sessions.json was damaged, recovered ${recovered?.sessions.length ?? 0} sessions, original kept at ${corruptPath}`);
+  }
+  return recovered ?? { sessions: [] };
+}
+
+// Recover complete session objects from a spliced or truncated document.
+// Nested metadata is rejected by shape; the later complete copy of an id wins.
+// Read-only callers return recovered data without rewriting another writer.
+function recoverDb(raw: string): DbSchema | null {
+  const found = new Map<string, Session>();
+  const starts: number[] = [];
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (c === '\\') escaped = true;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') { inString = true; continue; }
+    if (c === '{') { starts.push(i); continue; }
+    if (c !== '}') continue;
+    const start = starts.pop();
+    if (start === undefined) continue;
+    try {
+      const candidate = JSON.parse(raw.slice(start, i + 1));
+      if (isSession(candidate)) found.set(candidate.id, candidate);
+    } catch {}
+  }
+  return found.size ? { sessions: [...found.values()] } : null;
+}
+
+function isSession(value: unknown): value is Session {
+  if (!value || typeof value !== 'object') return false;
+  const s = value as Record<string, unknown>;
+  return ['id', 'tool', 'project', 'branch', 'startedAt', 'endedAt', 'momentum']
+    .every((key) => typeof s[key] === 'string') &&
+    ['durationSeconds', 'commits', 'linesAdded', 'linesRemoved', 'filesTouched', 'exitCode']
+    .every((key) => typeof s[key] === 'number' && Number.isFinite(s[key]));
 }
 
 function writeDb(data: DbSchema): void {
   ensureVibeDir();
-  writeFileSync(TMP_PATH, JSON.stringify(data, null, 2) + '\n');
-  renameSync(TMP_PATH, DB_PATH);
+  // A tmp file per write, never shared: writers that fell back to running
+  // unlocked once wrote through one sessions.json.tmp, interleaving their
+  // bytes into a single file that one of them then renamed into place.
+  const tmp = `${DB_PATH}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
+  try {
+    writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n');
+    renameSync(tmp, DB_PATH);
+  } catch (err) {
+    try { unlinkSync(tmp); } catch {}
+    throw err;
+  }
 }
 
 export async function addSession(session: Session): Promise<void> {
