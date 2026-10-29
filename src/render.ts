@@ -3,6 +3,8 @@ import type { Session } from './db.js';
 import { TIER_FILLED, type MomentumTier } from './score.js';
 import { PURPLE } from './colors.js';
 import type { LeaderboardEntry } from './leaderboard.js';
+import type { HookProblem } from './hook-health.js';
+import { homedir } from 'node:os';
 
 const DIM = chalk.hex('#444444');
 const WIDTH = 47;
@@ -135,6 +137,23 @@ export function renderPendingNotice(count: number): string {
 // this states the consequence and the one-command fix without crying wolf.
 export function renderSignedOutNotice(): string {
   return `  ${PURPLE('◆')} signed out · run ${PURPLE('vibe login')} so your ships keep counting\n`;
+}
+
+// Under `vibe status` when an app's desktop tracking is off for a reason the
+// install repair cannot fix. Says what is broken and the one thing to do.
+export function renderHookProblems(problems: HookProblem[]): string {
+  return problems.map((p) => {
+    const file = tildify(p.path);
+    const why = p.kind === 'unparseable'
+      ? `${file} isn't valid JSON, and the app ignores all of it until it's fixed`
+      : `its hooks run ${tildify(p.missing)}, which no longer exists · run ${PURPLE('vibe hooks install')}`;
+    return `  ${PURPLE('◆')} ${p.app} isn't being tracked · ${why}\n`;
+  }).join('');
+}
+
+function tildify(path: string): string {
+  const home = homedir();
+  return path.startsWith(home + '/') ? '~' + path.slice(home.length) : path;
 }
 
 // Printed after the endcard and under every command that already prints. The
