@@ -4,12 +4,13 @@ import { Command } from 'commander';
 import { getSessions } from './db.js';
 import { refreshAndReap } from './rescore.js';
 import { readConfig, writeConfig, addTool, removeTool, setInstallOptOut } from './config.js';
-import { renderStatus, renderLog, renderLeaderboard, renderUpgradeNotice } from './render.js';
+import { renderStatus, renderLog, renderLeaderboard, renderUpgradeNotice, renderHookProblems } from './render.js';
 import { recommendedUpgrade, recommendedUpgradeReason } from './remote-config.js';
 import { renderTerminalCard, writeHtmlCard } from './share.js';
 import { wrapTool } from './wrap.js';
 import { initShellHooks, removeShellHooks } from './init.js';
-import { isInstalled } from './reconcile.js';
+import { isInstalled, reconcileInstall } from './reconcile.js';
+import { desktopHookProblems } from './hook-health.js';
 import { installClaudeHooks, removeClaudeHooks } from './claude-hooks.js';
 import { installCodexHooks, removeCodexHooks } from './codex-hooks.js';
 import { installCursorHooks, removeCursorHooks } from './cursor-hooks.js';
@@ -60,6 +61,9 @@ async function runInit(): Promise<void> {
 }
 
 async function showStatus(): Promise<void> {
+  // A desktop-only user whose pinned Node is gone never runs a session-start
+  // hook, so the repair there never reaches them. This is a command they do run.
+  reconcileInstall();
   await refreshAndReap();
   await flushPendingSubmissions(1500).catch(() => {});
   const sessions = getSessions();
@@ -80,6 +84,8 @@ async function showStatus(): Promise<void> {
   });
 
   console.log(renderStatus(todaySessions, needsLogin(), pendingSubmissionCount()));
+  const problems = desktopHookProblems();
+  if (problems.length) console.log(renderHookProblems(problems));
   printUpgradeNotice();
 }
 

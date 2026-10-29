@@ -9,7 +9,7 @@ import { PURPLE } from './colors.js';
 const RED = chalk.hex('#EF4444');
 
 const CLAUDE_DIR = join(homedir(), '.claude');
-const SETTINGS_PATH = join(CLAUDE_DIR, 'settings.json');
+export const SETTINGS_PATH = join(CLAUDE_DIR, 'settings.json');
 
 // Claude Code hook event -> the internal `vibe __hook <event>` we dispatch to.
 // SessionStart opens the session, SessionEnd closes and submits it, and the

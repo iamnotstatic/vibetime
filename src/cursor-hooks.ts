@@ -36,7 +36,7 @@ export interface CursorHooksConfig {
   [key: string]: unknown;
 }
 
-function defaultHooksPath(): string {
+export function defaultHooksPath(): string {
   return join(homedir(), '.cursor', 'hooks.json');
 }
 

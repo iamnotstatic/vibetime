@@ -48,7 +48,7 @@ export interface ZcodeConfig {
   [key: string]: unknown;
 }
 
-function defaultConfigPath(): string {
+export function defaultConfigPath(): string {
   return join(homedir(), '.zcode', 'cli', 'config.json');
 }
 

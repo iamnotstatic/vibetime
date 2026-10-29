@@ -36,7 +36,7 @@ export interface CodexHooksConfig {
   [key: string]: unknown;
 }
 
-function defaultHooksPath(): string {
+export function defaultHooksPath(): string {
   const codexDir = process.env.CODEX_HOME || join(homedir(), '.codex');
   return join(codexDir, 'hooks.json');
 }
