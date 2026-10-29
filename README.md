@@ -87,7 +87,7 @@ If you use **both** the terminal wrapper and Desktop hooks, terminal sessions ar
 
 > **Why hooks use absolute paths** — the Desktop app, when launched from the Dock, doesn't inherit your shell `PATH`, so a bare `vibe` wouldn't resolve. `vibe hooks install` pins the absolute path to Node and the CLI so tracking works regardless of how Desktop is launched.
 >
-> If you switch Node versions (e.g. an `nvm` upgrade) and remove the old one, re-run `vibe hooks install` so the pinned path points at your current Node.
+> If you switch Node versions (e.g. an `nvm` upgrade) and remove the old one, run `vibe status`: it points the hooks at your current Node, and names any app that still isn't being tracked and why, such as a settings file that is no longer valid JSON.
 
 Stop tracking Desktop at any time:
 
