@@ -329,3 +329,50 @@ test('imported Claude hooks running inside Cursor are tagged as cursor', async (
 
   assert.equal(find(id).tool, 'cursor');
 });
+
+test('a conversation open before the hooks were installed is tracked from its next event', async (t) => {
+  freshDb();
+  const repo = initRepo(scratch(t), 'repo');
+  const id = randomUUID();
+
+  // Work from before vibetime could see the conversation is not its to claim.
+  writeFileSync(join(repo, 'before.txt'), 'x\n'.repeat(80));
+  sh('git add before.txt', repo);
+  commit(repo, 'before');
+
+  await hook('activity', id, repo, 'codex');
+  let s = find(id);
+  assert.ok(s, 'the first event after install opens the session');
+  assert.equal(s.tool, 'codex');
+  assert.equal(s.exitCode, -1);
+  assert.equal(s.commits, 0);
+
+  writeFileSync(join(repo, 'after.txt'), 'y\n'.repeat(80));
+  sh('git add after.txt', repo);
+  commit(repo, 'after');
+  await updateSession(id, idleFor(20_000));
+
+  await hook('activity', id, repo, 'codex');
+  s = find(id);
+  assert.equal(s.commits, 1);
+  assert.equal(s.linesAdded, 80);
+  assert.equal(s.momentum, 'shipped');
+});
+
+test('an unseen conversation in a folder with no repos opens nothing', async (t) => {
+  freshDb();
+  const dir = scratch(t);
+
+  await hook('activity', randomUUID(), dir);
+
+  assert.equal(getSessions().length, 0);
+});
+
+test('a session end for a conversation never seen opens nothing', async (t) => {
+  freshDb();
+  const repo = initRepo(scratch(t), 'repo');
+
+  await hook('session-end', randomUUID(), repo);
+
+  assert.equal(getSessions().length, 0);
+});

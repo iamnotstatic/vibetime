@@ -152,7 +152,7 @@ export async function handleHook(event: string, raw: string, tool: HookTool = 'c
     case 'session-start':
       return onSessionStart(sessionId, cwd, resolved);
     case 'activity':
-      return onActivity(sessionId, cwd);
+      return onActivity(sessionId, cwd, resolved);
     case 'session-end':
       return onSessionEnd(sessionId, cwd);
   }
@@ -173,6 +173,10 @@ async function onSessionStart(sessionId: string, cwd: string, tool: HookTool): P
   // off the provider's session id so a session is only opened once.
   if (getSessions().some((s) => s.id === sessionId)) return;
 
+  await openSession(sessionId, cwd, tool);
+}
+
+async function openSession(sessionId: string, cwd: string, tool: HookTool): Promise<void> {
   // The repo the session started in, or — when it started from a directory that
   // holds repos rather than being one — the repos inside it. Desktop fires
   // SessionStart for every session, including quick questions asked from a
@@ -204,9 +208,12 @@ async function onSessionStart(sessionId: string, cwd: string, tool: HookTool): P
   } catch {}
 }
 
-async function onActivity(sessionId: string, cwd: string): Promise<void> {
+async function onActivity(sessionId: string, cwd: string, tool: HookTool): Promise<void> {
   const session = getSessions().find((s) => s.id === sessionId);
-  if (!session) return;
+  // A conversation already open when the hooks were installed never sent us a
+  // SessionStart, and people leave those open for days. Its baseline is now,
+  // so only work from here on counts.
+  if (!session) return openSession(sessionId, cwd, tool);
 
   const now = Date.now();
   const reopen = reopenKind(session, now);
