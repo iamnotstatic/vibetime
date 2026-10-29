@@ -279,14 +279,16 @@ function writeDb(data: DbSchema): void {
   }
 }
 
-export async function addSession(session: Session): Promise<void> {
-  await withLock(() => {
+// True only for the process whose insert landed.
+export async function addSession(session: Session): Promise<boolean> {
+  return withLock(() => {
     const data = readDb();
     // Parallel hook processes (Cursor native + imported Claude hooks) can both
     // pass the in-memory existence check; the lock makes this the real gate.
-    if (data.sessions.some((s) => s.id === session.id)) return;
+    if (data.sessions.some((s) => s.id === session.id)) return false;
     data.sessions.push(session);
     writeDb(data);
+    return true;
   });
 }
 

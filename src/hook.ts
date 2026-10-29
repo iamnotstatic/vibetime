@@ -152,34 +152,42 @@ export async function handleHook(event: string, raw: string, tool: HookTool = 'c
     case 'session-start':
       return onSessionStart(sessionId, cwd, resolved);
     case 'activity':
-      return onActivity(sessionId, cwd);
+      return onActivity(sessionId, cwd, resolved);
     case 'session-end':
       return onSessionEnd(sessionId, cwd);
   }
 }
 
 async function onSessionStart(sessionId: string, cwd: string, tool: HookTool): Promise<void> {
-  // Desktop-only users never start a wrapped session, so this is their repair
-  // path, and their only chance to pick up server-tuned timings. Not on
-  // activity events: those fire on every tool call.
+  await startHousekeeping();
+
+  // SessionStart can also fire when an existing conversation is resumed — key
+  // off the provider's session id so a session is only opened once.
+  if (getSessions().some((s) => s.id === sessionId)) return;
+
+  await openSession(sessionId, cwd, tool);
+}
+
+// Desktop-only users never start a wrapped session, so this is their repair
+// path, and their only chance to pick up server-tuned timings. Once per session
+// opened, never per activity event: those fire on every tool call.
+async function startHousekeeping(): Promise<void> {
   reconcileInstall();
   await refreshTunables(HOOK_NETWORK_BUDGET_MS).catch(() => {});
   // A desktop session left open is only ever finalized here, by the reaper, and
   // it would otherwise wait for some other session's clean end to be sent.
   // Only when something settled, so a quiet start spends no time on the network.
   if (await refreshAndReap()) await flushPendingSubmissions(HOOK_NETWORK_BUDGET_MS).catch(() => {});
+}
 
-  // SessionStart can also fire when an existing conversation is resumed — key
-  // off the provider's session id so a session is only opened once.
-  if (getSessions().some((s) => s.id === sessionId)) return;
-
+async function openSession(sessionId: string, cwd: string, tool: HookTool): Promise<boolean> {
   // The repo the session started in, or — when it started from a directory that
   // holds repos rather than being one — the repos inside it. Desktop fires
   // SessionStart for every session, including quick questions asked from a
   // directory with no code under it at all; those can never score, so skip them
   // instead of piling up idle rows in `vibe log`.
   const repos = baselineRepos(cwd);
-  if (repos.length === 0) return;
+  if (repos.length === 0) return false;
 
   const startedAt = new Date().toISOString();
   const config = readConfig();
@@ -200,13 +208,23 @@ async function onSessionStart(sessionId: string, cwd: string, tool: HookTool): P
   };
 
   try {
-    await addSession(session);
-  } catch {}
+    return await addSession(session);
+  } catch {
+    return false;
+  }
 }
 
-async function onActivity(sessionId: string, cwd: string): Promise<void> {
+async function onActivity(sessionId: string, cwd: string, tool: HookTool): Promise<void> {
   const session = getSessions().find((s) => s.id === sessionId);
-  if (!session) return;
+  // A conversation we never saw start: open before the hooks were installed,
+  // or any Cursor Agent conversation, since Cursor 3.20 sends no sessionStart
+  // for those. Its baseline is now, so only work from here on counts. All
+  // three apps send a subagent's events under the parent's id, so a subagent
+  // never opens a session of its own.
+  if (!session) {
+    if (await openSession(sessionId, cwd, tool)) await startHousekeeping();
+    return;
+  }
 
   const now = Date.now();
   const reopen = reopenKind(session, now);
