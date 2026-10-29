@@ -95,7 +95,11 @@ export function mergeCodexHooks(config: CodexHooksConfig): {
     if (ours.length > 0) {
       existing++;
       if (ours.length !== 1 || JSON.stringify(ours[0]) !== JSON.stringify(group)) updated++;
-      hooks[codexEvent] = [...list.filter((candidate) => !isVibeHook(candidate)), group];
+      // Codex keys hook trust by position as well as content, and skips a hook
+      // until it is reviewed again once either changes. Ours keeps its slot, so
+      // a repair never sends anyone else's hooks back for review.
+      const slot = list.findIndex(isVibeHook);
+      hooks[codexEvent] = list.flatMap((candidate, i) => (i === slot ? [group] : isVibeHook(candidate) ? [] : [candidate]));
     } else {
       list.push(group);
       hooks[codexEvent] = list;
