@@ -212,8 +212,10 @@ async function onActivity(sessionId: string, cwd: string, tool: HookTool): Promi
   const session = getSessions().find((s) => s.id === sessionId);
   // A conversation already open when the hooks were installed never sent us a
   // SessionStart, and people leave those open for days. Its baseline is now,
-  // so only work from here on counts.
-  if (!session) return openSession(sessionId, cwd, tool);
+  // so only work from here on counts. Not Cursor yet: Claude Code and Codex
+  // send a subagent's events under the parent's id, Cursor does not say, and
+  // a subagent opened as its own session would take the parent's commits.
+  if (!session) return tool === 'cursor' ? undefined : openSession(sessionId, cwd, tool);
 
   const now = Date.now();
   const reopen = reopenKind(session, now);
