@@ -80,3 +80,38 @@ test('identical content is not rewritten', (t) => {
 
   assert.equal(statSync(path).ino, before);
 });
+
+test('a dangling symlink stays a link and its target is created', (t) => {
+  const dir = scratch(t);
+  const link = join(dir, 'settings.json');
+  symlinkSync(join(dir, 'dotfiles', '..', 'real.json'), link);
+
+  writeFileAtomic(link, '{}\n');
+
+  assert.ok(lstatSync(link).isSymbolicLink());
+  assert.equal(readFileSync(join(dir, 'real.json'), 'utf-8'), '{}\n');
+});
+
+test('a writable file in a folder we cannot create files in is still written', (t) => {
+  const dir = scratch(t);
+  const path = join(dir, 'settings.json');
+  writeFileSync(path, '{}\n');
+  chmodSync(dir, 0o555);
+  try {
+    writeFileAtomic(path, '{"a":1}\n');
+  } finally {
+    chmodSync(dir, 0o755);
+  }
+
+  assert.equal(readFileSync(path, 'utf-8'), '{"a":1}\n');
+});
+
+test('an unreadable file keeps its mode', (t) => {
+  const path = join(scratch(t), 'settings.json');
+  writeFileSync(path, '{}\n');
+  chmodSync(path, 0o200);
+
+  writeFileAtomic(path, '{"a":1}\n');
+
+  assert.equal(statSync(path).mode & 0o777, 0o200);
+});

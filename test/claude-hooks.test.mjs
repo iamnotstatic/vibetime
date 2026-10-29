@@ -34,7 +34,7 @@ test('reinstall repoints stale hooks and keeps everything else', () => {
     },
   }, null, 2));
 
-  installClaudeHooks(true);
+  installClaudeHooks('repair');
   const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
 
   assert.equal(settings.agentPushNotifEnabled, true);
@@ -48,11 +48,11 @@ test('reinstall repoints stale hooks and keeps everything else', () => {
 });
 
 test('a current install is left exactly as it is', () => {
-  installClaudeHooks(true);
+  installClaudeHooks('repair');
   const before = statSync(settingsPath).ino;
   const text = readFileSync(settingsPath, 'utf-8');
 
-  installClaudeHooks(true);
+  installClaudeHooks('repair');
 
   assert.equal(statSync(settingsPath).ino, before);
   assert.equal(readFileSync(settingsPath, 'utf-8'), text);

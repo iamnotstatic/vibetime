@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, mkdirSync } from 'node:fs';
 import { writeFileAtomic } from './write-file.js';
+import { isVibeCommand, stillRuns, type InstallMode } from './hook-command.js';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -67,10 +68,10 @@ export function isVibeCursorHook(hook: CursorHook): boolean {
   // require the literal "vibe" in the path: a dev clone in a differently named
   // directory has no "vibe" in its cli.js path, which would make reinstall
   // duplicate our hooks and uninstall miss them.
-  return typeof hook?.command === 'string' && hook.command.includes('__hook');
+  return isVibeCommand(hook?.command);
 }
 
-export function mergeCursorHooks(config: CursorHooksConfig): {
+export function mergeCursorHooks(config: CursorHooksConfig, mode: InstallMode = 'install'): {
   config: CursorHooksConfig;
   added: number;
   existing: number;
@@ -93,6 +94,7 @@ export function mergeCursorHooks(config: CursorHooksConfig): {
     const previous = list.filter(isVibeCursorHook);
     if (previous.length > 0) {
       existing++;
+      if (previous.length === 1 && mode === 'repair' && stillRuns(previous[0].command, ours.command)) continue;
       if (previous.length !== 1 || JSON.stringify(previous[0]) !== JSON.stringify(ours)) updated++;
       hooks[cursorEvent] = [...list.filter((candidate) => !isVibeCursorHook(candidate)), ours];
     } else {
@@ -147,15 +149,15 @@ function writeConfig(path: string, config: CursorHooksConfig): void {
   writeFileAtomic(path, JSON.stringify(config, null, 2) + '\n');
 }
 
-export function installCursorHooks(path = defaultHooksPath(), silent = false): void {
-  const say = (msg: string) => { if (!silent) console.log(msg); };
+export function installCursorHooks(path = defaultHooksPath(), mode: InstallMode = 'install'): void {
+  const say = (msg: string) => { if (mode === 'install') console.log(msg); };
   const current = readConfig(path);
   if (current === null) {
     say(`\n  ${RED('✗')} vibe: ${path} is not valid JSON — fix it and re-run\n`);
     return;
   }
 
-  const { config, added, existing, updated } = mergeCursorHooks(current);
+  const { config, added, existing, updated } = mergeCursorHooks(current, mode);
   writeConfig(path, config);
 
   if (added === 0 && updated === 0) {

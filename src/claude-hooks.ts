@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, mkdirSync } from 'node:fs';
 import { writeFileAtomic } from './write-file.js';
+import { isVibeCommand, stillRuns, type InstallMode } from './hook-command.js';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -66,18 +67,18 @@ export function isVibeHook(group: HookGroup): boolean {
   // on the Codex side either: Codex can import these Claude Code entries into
   // its own hooks.json verbatim, and the Codex installer has to claim those
   // copies so it can replace them rather than run alongside them.
-  return Array.isArray(group?.hooks) && group.hooks.some(isVibeCommand);
+  return Array.isArray(group?.hooks) && group.hooks.some(isVibeHookCommand);
 }
 
-function isVibeCommand(hook: HookCommand): boolean {
-  return typeof hook?.command === 'string' && hook.command.includes('__hook');
+function isVibeHookCommand(hook: HookCommand): boolean {
+  return isVibeCommand(hook?.command);
 }
 
 // Someone else's command can share a group with ours, and it stays.
 function withoutVibeCommands(groups: HookGroup[]): HookGroup[] {
   return groups.flatMap((group) => {
     if (!isVibeHook(group)) return [group];
-    const hooks = group.hooks.filter((hook) => !isVibeCommand(hook));
+    const hooks = group.hooks.filter((hook) => !isVibeHookCommand(hook));
     return hooks.length ? [{ ...group, hooks }] : [];
   });
 }
@@ -97,8 +98,8 @@ function writeSettings(settings: Settings): void {
   writeFileAtomic(SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n');
 }
 
-export function installClaudeHooks(silent = false): void {
-  const say = (msg: string) => { if (!silent) console.log(msg); };
+export function installClaudeHooks(mode: InstallMode = 'install'): void {
+  const say = (msg: string) => { if (mode === 'install') console.log(msg); };
   const settings = readSettings();
   if (settings === null) {
     say(`\n  ${RED('✗')} vibe: ${SETTINGS_PATH} is not valid JSON — fix it and re-run\n`);
@@ -118,8 +119,10 @@ export function installClaudeHooks(silent = false): void {
 
     if (list.some(isVibeHook)) {
       existing++;
-      const owned = list.flatMap((g) => g.hooks.filter(isVibeCommand));
-      if (owned.length === 1 && owned[0].command === command) continue;
+      const owned = list.flatMap((g) => (isVibeHook(g) ? g.hooks.filter(isVibeHookCommand) : []));
+      const current = owned.length === 1
+        && (owned[0].command === command || (mode === 'repair' && stillRuns(owned[0].command, command)));
+      if (current) continue;
       // A pinned Node or CLI that moved, say after an nvm upgrade, fails on
       // every event without a word, and this repair is the only thing that
       // runs often enough to notice.

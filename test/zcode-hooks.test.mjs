@@ -155,7 +155,7 @@ test('an unchanged install never writes the config or resets user formatting and
   const old = new Date(Date.now() - 60000);
   utimesSync(path, old, old);
   const before = statSync(path);
-  installZcodeHooks(path, true);
+  installZcodeHooks(path, 'repair');
   assert.equal(readFileSync(path, 'utf8'), saved);
   assert.equal(statSync(path).mtimeMs, before.mtimeMs);
 });
@@ -186,7 +186,7 @@ test('installer preserves syntactically valid but unsupported config shapes', (t
     for (const value of [null, [], 42, { hooks: [] }, { hooks: { events: [] } }, { hooks: { events: { Stop: 'custom' } } }]) {
       const raw = JSON.stringify(value);
       writeFileSync(path, raw);
-      assert.doesNotThrow(() => installZcodeHooks(path, true));
+      assert.doesNotThrow(() => installZcodeHooks(path, 'repair'));
       assert.equal(readFileSync(path, 'utf8'), raw);
     }
   } finally { console.log = originalLog; }
