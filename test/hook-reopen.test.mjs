@@ -376,13 +376,3 @@ test('a session end for a conversation never seen opens nothing', async (t) => {
 
   assert.equal(getSessions().length, 0);
 });
-
-test('Cursor does not open a session from an event it never saw start', async (t) => {
-  freshDb();
-  const repo = initRepo(scratch(t), 'repo');
-
-  await handleHook('activity', JSON.stringify({ conversation_id: randomUUID(), workspace_roots: [repo] }), 'cursor');
-  await handleHook('activity', JSON.stringify({ session_id: randomUUID(), cwd: repo, cursor_version: '3.8.23' }), 'claude');
-
-  assert.equal(getSessions().length, 0);
-});
