@@ -34,7 +34,7 @@ function put(path, text) {
 
 function status() {
   return execFileSync(process.execPath, [cli, 'status'], {
-    env: { ...process.env, VIBE_API_URL: 'http://127.0.0.1:9', FORCE_COLOR: '0' },
+    env: { ...process.env, VIBE_API: 'http://127.0.0.1:9', FORCE_COLOR: '0' },
     encoding: 'utf-8',
   });
 }

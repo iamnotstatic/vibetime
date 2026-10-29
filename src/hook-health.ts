@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { readConfig } from './config.js';
+import { isVibeCommand, pinnedPaths } from './hook-command.js';
 import { SETTINGS_PATH as claudePath } from './claude-hooks.js';
 import { defaultHooksPath as codexPath } from './codex-hooks.js';
 import { defaultHooksPath as cursorPath } from './cursor-hooks.js';
@@ -45,17 +46,11 @@ export function desktopHookProblems(): HookProblem[] {
 }
 
 // Every app nests its hooks differently, but each of ours is an object whose
-// `command` runs `__hook`.
+// `command` is a vibe hook command.
 function vibeCommands(value: unknown): string[] {
   if (Array.isArray(value)) return value.flatMap(vibeCommands);
   if (!value || typeof value !== 'object') return [];
   const command = (value as { command?: unknown }).command;
-  const own = typeof command === 'string' && command.includes('__hook') ? [command] : [];
+  const own = isVibeCommand(command) ? [command] : [];
   return [...own, ...Object.values(value).flatMap(vibeCommands)];
-}
-
-// `'<node>' '<cli.js>' __hook ...`, as every installer writes it.
-function pinnedPaths(command: string): string[] {
-  const head = command.slice(0, command.indexOf('__hook'));
-  return [...head.matchAll(/'((?:[^']|'\\'')*)'/g)].map((m) => m[1].replace(/'\\''/g, "'"));
 }
