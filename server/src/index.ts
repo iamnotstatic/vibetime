@@ -99,7 +99,7 @@ export default {
           // A client that times out cancels the invocation, and the session row
           // is written before its ship events, so the numbers would land and
           // the credit would not. The CLI never resends an unchanged payload.
-          const work = submitSession(request, env);
+          const work = submitSession(request, env, (later) => ctx.waitUntil(later));
           ctx.waitUntil(work.catch(() => {}));
           return withCors(await work);
         }

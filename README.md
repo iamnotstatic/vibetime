@@ -185,6 +185,8 @@ It reads **git metadata only** — commit counts, line counts, file counts. It n
 
 The Claude Code, Codex, Cursor, and ZCode hooks are held to the same standard: they read only the session id and working directory from the hook payload — never the transcript, your prompts, or the model's output — and derive the same git metadata from there.
 
+**Forge verification is off unless you turn it on.** `vibe config set forge <host>` opts in for repos whose `origin` is on that forge: their submits also carry the forge repo name and the ids of the commits the session was credited with, sent to the vibetime server like everything else. The server, not your machine, asks the forge to check those commits, and verified ships show on your profile with a link to the forge's public record. `vibe config set forge off` stops it. The CLI never contacts the forge itself.
+
 All data is stored locally in `~/.vibe/`. If you've signed in to the leaderboard, see the section above for the exact fields submitted.
 
 ## License

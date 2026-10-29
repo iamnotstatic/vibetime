@@ -18,6 +18,9 @@ export interface VibeConfig {
   removedTools?: string[];
   shellHooksOptOut?: boolean;
   desktopHooksOptOut?: boolean;
+  // Opt-in forge verification (see forge.ts): the forge host whose repos get
+  // their commits checked. Unset means no commit ids are ever sent.
+  forge?: string;
 }
 
 // Overridable so tests can run the full session flow against a scratch dir

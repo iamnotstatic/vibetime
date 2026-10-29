@@ -89,6 +89,10 @@ export function renderProfile(data: ProfileData, updatedAt: Date, nav: NavContex
     : data.weekDevCount > 0
       ? `<p class="rankline">unranked this week · ${data.weekDevCount} developer${data.weekDevCount === 1 ? '' : 's'} shipping</p>`
       : '';
+  const fv = data.forgeVerified;
+  const forgeLine = fv.ships > 0 && fv.forge && fv.repo
+    ? `<p class="rankline"><span class="pill">${formatCount(fv.ships)} forge-verified</span><a href="https://${escapeHtml(fv.forge)}/api/${escapeHtml(fv.repo)}/dg/oplog" rel="nofollow noopener">checked by ${escapeHtml(fv.forge)}</a></p>`
+    : '';
   const activity = data.all.ships === 0
     ? `<div class="empty"><p><b>nothing shipped. yet.</b></p></div>`
     : weeksPanel(data.days);
@@ -105,6 +109,7 @@ export function renderProfile(data: ProfileData, updatedAt: Date, nav: NavContex
       <h1>@${handle}</h1>
       <p class="meta"><a href="https://github.com/${handle}" rel="nofollow noopener">${icon('github')}github.com/${handle}</a>${lastLine}</p>
       ${rankLine}
+      ${forgeLine}
     </div>
   </header>
   ${crewChips}

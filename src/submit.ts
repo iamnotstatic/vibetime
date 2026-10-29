@@ -1,11 +1,12 @@
 import { mkdirSync, rmdirSync, readFileSync, writeFileSync, statSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { VIBE_DIR, ensureVibeDir } from './config.js';
+import { VIBE_DIR, ensureVibeDir, readConfig } from './config.js';
 import { createHash, createHmac } from 'node:crypto';
 import { getSessions, updateSession, type Session } from './db.js';
 import { readAuth, markSignedOut, refreshAuth, jwtExpiresAtMs, rememberCommitKey, type AuthRecord } from './auth.js';
 import { request, ApiError } from './api.js';
 import { branchFingerprint } from './fingerprint.js';
+import { forgeClaim } from './forge.js';
 
 // Renew ahead of expiry so submissions rarely meet a 401. Two days of slack on
 // a seven-day token means one successful flush a week keeps auth alive forever.
@@ -65,7 +66,15 @@ function buildPayload(s: Session, auth: AuthRecord): Record<string, unknown> {
       ? { shipEvents: s.shipEvents.slice(-Math.min(s.commits, s.shipEvents.length)) }
       : {}),
     ...commitFacts(s, auth),
+    ...forgeField(s),
   };
+}
+
+// Only with `vibe config set forge <host>`, and only to vibetime's own API: the
+// server, not this machine, asks the forge to verify the commits.
+function forgeField(s: Session): Record<string, unknown> {
+  const claim = forgeClaim(s, readConfig().forge);
+  return claim ? { forge: claim } : {};
 }
 
 interface SubmitResponse {

@@ -13,4 +13,10 @@ export interface Env {
   WEB_ORIGIN?: string;
   GITHUB_WEB_BASE?: string;
   GITHUB_API_BASE?: string;
+  // Optional, both needed for forge verification: a comma-separated list of
+  // forge hosts the server will check commits against, and the hex ed25519
+  // seed the server signs those checks with. Without either, a submit's
+  // `forge` field is ignored and no forge is ever contacted.
+  VERIFIED_FORGES?: string;
+  FORGE_AGENT_KEY?: string;
 }

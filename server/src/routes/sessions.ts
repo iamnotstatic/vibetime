@@ -6,6 +6,7 @@ import { scoreSession, clampBaseline, earnsEvents, type Stats } from '../score.j
 import { commitKeyFor, COMMIT_KEY_VERSION } from '../commit-key.js';
 import { forgetCrewBoards } from '../crews.js';
 import { forgetBoards } from './leaderboard.js';
+import { parseForge, verifyForgeShip } from '../forge.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VALID_TIERS = new Set(['shipped', 'progressed', 'tinkering', 'exploring', 'idle', 'interrupted']);
@@ -239,7 +240,8 @@ function rejected(reason: string, cliVersion: string | null): Response {
   return error(400, reason);
 }
 
-export async function submitSession(request: Request, env: Env): Promise<Response> {
+// `defer` keeps work alive after the response, for the opt-in forge check.
+export async function submitSession(request: Request, env: Env, defer?: (work: Promise<unknown>) => void): Promise<Response> {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
 
@@ -431,6 +433,15 @@ export async function submitSession(request: Request, env: Env): Promise<Respons
 
   // Every submit carries the key, so an install that upgrades while logged in
   // picks it up on its next submit with nothing to run.
+  const forge = parseForge(body, env);
+  if (forge && defer) {
+    defer(verifyForgeShip(env, auth.sub, {
+      id: parsed.id, tool: parsed.tool, startedAt: parsed.startedAt, endedAt: parsed.endedAt,
+      durationSeconds: parsed.durationSeconds, linesAdded: parsed.linesAdded,
+      linesRemoved: parsed.linesRemoved, filesTouched: parsed.filesTouched,
+    }, forge));
+  }
+
   const commitKey = await commitKeyFor(env.COMMIT_KEY_SECRET, auth.sub);
   return json({ ok: true, submittedAt, ...(commitKey ? { commitKey, commitKeyVersion: COMMIT_KEY_VERSION } : {}) });
 }

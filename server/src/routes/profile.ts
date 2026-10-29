@@ -30,6 +30,9 @@ export interface ProfileData {
   lastShippedAt: string | null;
   weekRank: number | null;
   weekDevCount: number;
+  // Opt-in forge verification: ships a forge confirmed, and where the latest
+  // one is recorded. Zero and null for everyone who has not opted in.
+  forgeVerified: { ships: number; forge: string | null; repo: string | null };
   // Ships per day from the Monday eleven weeks back through today.
   days: ProfileHeatmapDay[];
 }
@@ -96,6 +99,18 @@ async function weekRank(
   return { rank: (ahead?.n ?? 0) + 1, devCount };
 }
 
+async function forgeVerified(env: Env, githubId: number): Promise<ProfileData['forgeVerified']> {
+  const none = { ships: 0, forge: null, repo: null };
+  // A missing forge_ships table must not take the profile down with it.
+  const row = await env.DB.prepare(
+    `SELECT COUNT(*) AS ships,
+            (SELECT forge FROM forge_ships WHERE user_github_id = ?1 AND ship = 1 ORDER BY checked_at DESC LIMIT 1) AS forge,
+            (SELECT repo FROM forge_ships WHERE user_github_id = ?1 AND ship = 1 ORDER BY checked_at DESC LIMIT 1) AS repo
+       FROM forge_ships WHERE user_github_id = ?1 AND ship = 1`,
+  ).bind(githubId).first<{ ships: number; forge: string | null; repo: string | null }>().catch(() => null);
+  return row ? { ships: row.ships, forge: row.forge, repo: row.repo } : none;
+}
+
 async function buildProfile(env: Env, handle: string): Promise<ProfileData | null> {
   const user = await env.DB.prepare(
     `SELECT github_id, handle, avatar_url
@@ -121,7 +136,10 @@ async function buildProfile(env: Env, handle: string): Promise<ProfileData | nul
      WHERE e.user_github_id = ?`,
   ).bind(user.github_id).first<{ last_shipped_at: string | null }>();
 
-  const { rank, devCount } = await weekRank(env, user, weekStart, week.ships);
+  const [{ rank, devCount }, verified] = await Promise.all([
+    weekRank(env, user, weekStart, week.ships),
+    forgeVerified(env, user.github_id),
+  ]);
 
   const since = startOfCalendarWeek();
   since.setUTCDate(since.getUTCDate() - 7 * (SKYLINE_WEEKS - 1));
@@ -150,6 +168,7 @@ async function buildProfile(env: Env, handle: string): Promise<ProfileData | nul
     lastShippedAt: last?.last_shipped_at ?? null,
     weekRank: rank,
     weekDevCount: devCount,
+    forgeVerified: verified,
     days,
   };
 }
