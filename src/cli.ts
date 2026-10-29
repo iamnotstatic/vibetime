@@ -163,6 +163,7 @@ program
   .command('log')
   .description('full session history')
   .action(async () => {
+    reconcileInstall();
     await refreshAndReap();
     await flushPendingSubmissions(1500).catch(() => {});
     const sessions = getSessions();
@@ -176,6 +177,7 @@ program
   .description("this week's share card")
   .option('--html', 'skip terminal card, open HTML directly')
   .action(async (opts: { html?: boolean }) => {
+    reconcileInstall();
     await refreshAndReap();
     await flushPendingSubmissions(1500).catch(() => {});
     const sessions = getSessions();
@@ -241,6 +243,7 @@ program
   .command('leaderboard')
   .description('ships, this week')
   .action(async () => {
+    reconcileInstall();
     await refreshAndReap();
     await flushPendingSubmissions(1500).catch(() => {});
     try {
