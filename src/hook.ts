@@ -208,11 +208,10 @@ async function openSession(sessionId: string, cwd: string, tool: HookTool): Prom
   };
 
   try {
-    await addSession(session);
+    return await addSession(session);
   } catch {
     return false;
   }
-  return true;
 }
 
 async function onActivity(sessionId: string, cwd: string, tool: HookTool): Promise<void> {

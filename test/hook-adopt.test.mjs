@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { execSync } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { createServer } from 'node:http';
 
 // Opening a session runs the install repair, which writes the editors' hook
 // configs under HOME, so HOME is scratch before the first dist import.
@@ -12,7 +13,17 @@ const home = mkdtempSync(join(tmpdir(), 'vibe-adopt-home-'));
 process.env.HOME = home;
 process.env.VIBE_DIR = join(home, '.vibe');
 process.env.CODEX_HOME = join(home, '.codex');
-process.env.VIBE_API_URL = 'http://127.0.0.1:9';
+// A local stand-in for the API, counting the tunables fetch that only the
+// start housekeeping makes.
+let configFetches = 0;
+const api = createServer((req, res) => {
+  if (req.url?.startsWith('/config')) configFetches++;
+  res.setHeader('content-type', 'application/json');
+  res.end('{}');
+});
+await new Promise((resolve) => api.listen(0, '127.0.0.1', resolve));
+api.unref();
+process.env.VIBE_API = `http://127.0.0.1:${api.address().port}`;
 delete process.env.VIBE_SESSION;
 
 const { handleHook } = await import('../dist/hook.js');
@@ -34,6 +45,7 @@ function repoWithCommit(t) {
 }
 
 function fresh() {
+  configFetches = 0;
   rmSync(join(home, '.vibe'), { recursive: true, force: true });
   rmSync(join(home, '.cursor'), { recursive: true, force: true });
 }
@@ -116,4 +128,31 @@ test('opening a session late runs the start housekeeping once, not per event', a
 
   await cursorEvent(cursorPrompt(randomUUID(), repoWithCommit(t)));
   assert.doesNotMatch(readFileSync(cursorHooks, 'utf-8'), /\/old\/node/, 'repaired when a session opened');
+});
+
+// Cursor fires both copies of the hook at once, as separate processes; only
+// the one whose insert landed opens the session, so only it spends the first
+// prompt's time on the housekeeping. In-process copies would share the
+// tunables fetch and hide a double run, hence real processes on one instant.
+test('two copies of the first event run the housekeeping once', async (t) => {
+  fresh();
+  const repo = repoWithCommit(t);
+  const payload = JSON.stringify(cursorPrompt(randomUUID(), repo));
+  const hookModule = new URL('../dist/hook.js', import.meta.url).href;
+  const startAt = Date.now() + 1500;
+  const copy = (tool) => new Promise((resolve, reject) => {
+    const script = `
+      const { handleHook } = await import(${JSON.stringify(hookModule)});
+      while (Date.now() < ${startAt}) {}
+      await handleHook('activity', ${JSON.stringify(payload)}, '${tool}');
+    `;
+    const child = spawn(process.execPath, ['--input-type=module', '-e', script], { env: process.env, stdio: 'inherit' });
+    child.on('error', reject);
+    child.on('exit', resolve);
+  });
+
+  await Promise.all([copy('cursor'), copy('claude')]);
+
+  assert.equal(getSessions().length, 1);
+  assert.equal(configFetches, 1);
 });
