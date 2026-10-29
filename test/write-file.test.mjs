@@ -23,19 +23,22 @@ test('a reader never sees a torn or half-written file while writers race', async
   const path = join(scratch(t), 'settings.json');
   writeFileSync(path, '{}\n');
   const startAt = Date.now() + 1500;
-  const run = (script) => new Promise((resolve) => {
+  const run = (script) => new Promise((resolve, reject) => {
     let out = '';
     const child = spawn(process.execPath, ['--input-type=module', '-e', script], { stdio: ['ignore', 'pipe', 'inherit'] });
     child.stdout.on('data', (d) => { out += d; });
+    child.on('error', reject);
     child.on('exit', () => resolve(out));
   });
 
   const writers = Array.from({ length: 6 }, (_, i) => {
-    const body = JSON.stringify({ writer: i, pad: 'x'.repeat(i % 2 ? 200_000 : 100) }) + '\n';
+    // Built in the child: Linux caps a single argv entry at 128 KB.
+    const size = i % 2 ? 200_000 : 100;
     return run(`
       const { writeFileAtomic } = await import(${JSON.stringify(moduleUrl)});
+      const body = (n) => JSON.stringify({ writer: ${i}, n, pad: 'x'.repeat(${size}) }) + '\\n';
       while (Date.now() < ${startAt}) {}
-      for (let n = 0; n < 60; n++) writeFileAtomic(${JSON.stringify(path)}, ${JSON.stringify(body)}.replace('"pad"', '"pad' + n + '"'));
+      for (let n = 0; n < 60; n++) writeFileAtomic(${JSON.stringify(path)}, body(n));
     `);
   });
   const reader = run(`
