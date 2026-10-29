@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync } from 'node:fs';
+import { writeFileAtomic } from './write-file.js';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -65,9 +66,20 @@ export function isVibeHook(group: HookGroup): boolean {
   // on the Codex side either: Codex can import these Claude Code entries into
   // its own hooks.json verbatim, and the Codex installer has to claim those
   // copies so it can replace them rather than run alongside them.
-  return Array.isArray(group?.hooks) && group.hooks.some(
-    (h) => typeof h?.command === 'string' && h.command.includes('__hook'),
-  );
+  return Array.isArray(group?.hooks) && group.hooks.some(isVibeCommand);
+}
+
+function isVibeCommand(hook: HookCommand): boolean {
+  return typeof hook?.command === 'string' && hook.command.includes('__hook');
+}
+
+// Someone else's command can share a group with ours, and it stays.
+function withoutVibeCommands(groups: HookGroup[]): HookGroup[] {
+  return groups.flatMap((group) => {
+    if (!isVibeHook(group)) return [group];
+    const hooks = group.hooks.filter((hook) => !isVibeCommand(hook));
+    return hooks.length ? [{ ...group, hooks }] : [];
+  });
 }
 
 function readSettings(): Settings | null {
@@ -82,7 +94,7 @@ function readSettings(): Settings | null {
 
 function writeSettings(settings: Settings): void {
   mkdirSync(CLAUDE_DIR, { recursive: true });
-  writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n');
+  writeFileAtomic(SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n');
 }
 
 export function installClaudeHooks(silent = false): void {
@@ -96,16 +108,25 @@ export function installClaudeHooks(silent = false): void {
   const hooks = settings.hooks ?? {};
   let added = 0;
   let existing = 0;
+  let updated = 0;
 
   for (const [claudeEvent, vibeEvent] of Object.entries(EVENT_MAP)) {
     const list = Array.isArray(hooks[claudeEvent]) ? hooks[claudeEvent] : [];
+    const command = vibeCommand(vibeEvent);
+    const group: HookGroup = { hooks: [{ type: 'command', command, timeout: 10 }] };
+    if (MATCHER_EVENTS.has(claudeEvent)) group.matcher = '';
+
     if (list.some(isVibeHook)) {
       existing++;
-      hooks[claudeEvent] = list;
+      const owned = list.flatMap((g) => g.hooks.filter(isVibeCommand));
+      if (owned.length === 1 && owned[0].command === command) continue;
+      // A pinned Node or CLI that moved, say after an nvm upgrade, fails on
+      // every event without a word, and this repair is the only thing that
+      // runs often enough to notice.
+      hooks[claudeEvent] = [...withoutVibeCommands(list), group];
+      updated++;
       continue;
     }
-    const group: HookGroup = { hooks: [{ type: 'command', command: vibeCommand(vibeEvent), timeout: 10 }] };
-    if (MATCHER_EVENTS.has(claudeEvent)) group.matcher = '';
     list.push(group);
     hooks[claudeEvent] = list;
     added++;
@@ -114,8 +135,12 @@ export function installClaudeHooks(silent = false): void {
   settings.hooks = hooks;
   writeSettings(settings);
 
-  if (added === 0) {
+  if (added === 0 && updated === 0) {
     say(`\n  ${PURPLE('◆')} claude code desktop tracking already installed\n`);
+    return;
+  }
+  if (added === 0) {
+    say(`\n  ${PURPLE('◆')} claude code desktop tracking updated in ${SETTINGS_PATH}\n`);
     return;
   }
   say(`\n  ${PURPLE('◆')} claude code desktop tracking installed in ${SETTINGS_PATH}\n`);

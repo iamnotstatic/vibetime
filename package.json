@@ -9,7 +9,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "tsc && node --test test/*.test.mjs",
+    "test": "tsc && node --test --import ./test/isolate-home.mjs test/*.test.mjs",
     "prepublishOnly": "tsc",
     "postinstall": "echo \"\\n  ◆ vibetime installed. run 'vibe' to finish setup.\\n\""
   },

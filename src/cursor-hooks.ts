@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync } from 'node:fs';
+import { writeFileAtomic } from './write-file.js';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -143,7 +144,7 @@ function readConfig(path: string): CursorHooksConfig | null {
 
 function writeConfig(path: string, config: CursorHooksConfig): void {
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(config, null, 2) + '\n');
+  writeFileAtomic(path, JSON.stringify(config, null, 2) + '\n');
 }
 
 export function installCursorHooks(path = defaultHooksPath(), silent = false): void {
