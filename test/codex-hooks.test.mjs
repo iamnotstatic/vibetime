@@ -105,7 +105,7 @@ test('reinstall replaces Claude Code hooks that Codex imported', () => {
     assert.match(vibeGroups[0].hooks[0].command, /--tool codex/, event);
   }
   assert.equal(merged.hooks.SessionEnd[0].hooks[0].timeout, 3);
-  assert.equal(merged.hooks.Stop[0], unrelated);
+  assert.equal(merged.hooks.Stop[1], unrelated);
 });
 
 test('uninstall removes Claude Code hooks that Codex imported', () => {
@@ -154,4 +154,35 @@ test('Codex Stop hook returns the required JSON response', () => {
   assert.equal(result.status, 0);
   assert.equal(result.stdout, '{}\n');
   assert.equal(result.stderr, '');
+});
+
+// Codex trusts a hook by its slot (event, group index, handler index) and its
+// content, and skips it until reviewed again when either changes. A repair
+// that moved our group to the end would shift every hook after it.
+test('a repaired hook keeps its slot, so hooks after it keep theirs', () => {
+  const config = mergeCodexHooks({}).config;
+  const stale = "'/old/node' '/old/vibe' __hook session-start --tool codex";
+  const ours = config.hooks.SessionStart[0];
+  ours.hooks[0].command = stale;
+  config.hooks.SessionStart = [otherHook('orca-before'), ours, otherHook('orca-after')];
+
+  const { config: merged, updated } = mergeCodexHooks(structuredClone(config));
+  const commands = merged.hooks.SessionStart.map((group) => group.hooks[0].command);
+
+  assert.equal(updated, 1);
+  assert.equal(commands[0], 'orca-before');
+  assert.match(commands[1], /__hook session-start --tool codex/);
+  assert.doesNotMatch(commands[1], /old\/node/);
+  assert.equal(commands[2], 'orca-after');
+});
+
+test('a current hook is not moved even when another tool added hooks after it', () => {
+  const config = mergeCodexHooks({}).config;
+  config.hooks.Stop = [...config.hooks.Stop, otherHook('orca-after')];
+  const before = JSON.stringify(config);
+
+  const { config: merged, updated } = mergeCodexHooks(structuredClone(config));
+
+  assert.equal(updated, 0);
+  assert.equal(JSON.stringify(merged), before);
 });

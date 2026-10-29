@@ -1,4 +1,6 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync } from 'node:fs';
+import { writeFileAtomic } from './write-file.js';
+import { isVibeCommand, stillRuns, type InstallMode } from './hook-command.js';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -65,7 +67,7 @@ export function codexHookCommandWindows(event: HookEvent, hookEventName: string)
   return hookInvocation(event, hookEventName, winQuote);
 }
 
-export function mergeCodexHooks(config: CodexHooksConfig): {
+export function mergeCodexHooks(config: CodexHooksConfig, mode: InstallMode = 'install'): {
   config: CodexHooksConfig;
   added: number;
   existing: number;
@@ -93,8 +95,15 @@ export function mergeCodexHooks(config: CodexHooksConfig): {
     const ours = list.filter(isVibeHook);
     if (ours.length > 0) {
       existing++;
+      const kept = ours.length === 1 && mode === 'repair' && ours[0].hooks.length === 1
+        && stillRuns(ours[0].hooks[0].command, group.hooks[0].command);
+      if (kept) continue;
       if (ours.length !== 1 || JSON.stringify(ours[0]) !== JSON.stringify(group)) updated++;
-      hooks[codexEvent] = [...list.filter((candidate) => !isVibeHook(candidate)), group];
+      // Codex keys hook trust by position as well as content, and skips a hook
+      // until it is reviewed again once either changes. Ours keeps its slot, so
+      // a repair never sends anyone else's hooks back for review.
+      const slot = list.findIndex(isVibeHook);
+      hooks[codexEvent] = list.flatMap((candidate, i) => (i === slot ? [group] : isVibeHook(candidate) ? [] : [candidate]));
     } else {
       list.push(group);
       hooks[codexEvent] = list;
@@ -144,18 +153,18 @@ function readConfig(path: string): CodexHooksConfig | null {
 
 function writeConfig(path: string, config: CodexHooksConfig): void {
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(config, null, 2) + '\n');
+  writeFileAtomic(path, JSON.stringify(config, null, 2) + '\n');
 }
 
-export function installCodexHooks(path = defaultHooksPath(), silent = false): void {
-  const say = (msg: string) => { if (!silent) console.log(msg); };
+export function installCodexHooks(path = defaultHooksPath(), mode: InstallMode = 'install'): void {
+  const say = (msg: string) => { if (mode === 'install') console.log(msg); };
   const current = readConfig(path);
   if (current === null) {
     say(`\n  ${RED('✗')} vibe: ${path} is not valid JSON — fix it and re-run\n`);
     return;
   }
 
-  const { config, added, existing, updated } = mergeCodexHooks(current);
+  const { config, added, existing, updated } = mergeCodexHooks(current, mode);
   writeConfig(path, config);
 
   if (added === 0 && updated === 0) {

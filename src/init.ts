@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, appendFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, appendFileSync, mkdirSync } from 'node:fs';
+import { writeFileAtomic } from './write-file.js';
 import { basename, dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { PURPLE } from './colors.js';
@@ -78,7 +79,7 @@ export function removeHook(tool: string, rcFile: string): boolean {
   const cleaned = filtered.join('\n');
   if (cleaned === content) return false;
 
-  writeFileSync(rcFile, cleaned);
+  writeFileAtomic(rcFile, cleaned);
   return true;
 }
 
@@ -141,7 +142,7 @@ function stripHooksFromFile(rcFile: string): boolean {
   const cleaned = filtered.join('\n');
   if (cleaned === content) return false;
 
-  writeFileSync(rcFile, cleaned);
+  writeFileAtomic(rcFile, cleaned);
   return true;
 }
 
