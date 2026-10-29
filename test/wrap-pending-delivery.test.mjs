@@ -11,7 +11,6 @@ import { randomUUID } from 'node:crypto';
 // retry in its poller. The child loads shorter timings only in this fixture.
 test('a running unshipped wrapper retries finished work before its tool exits', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'vibe-wrap-pending-'));
-  t.after(() => rmSync(home, { recursive: true, force: true }));
   const id = randomUUID();
   const endedAt = new Date(Date.now() - 3 * 3600_000).toISOString();
   writeFileSync(join(home, 'sessions.json'), JSON.stringify({ sessions: [{
@@ -59,6 +58,8 @@ test('a running unshipped wrapper retries finished work before its tool exits', 
   child = spawn(process.execPath, ['--input-type=module', '-e', script], { cwd: home, env, stdio: 'ignore' });
   const closed = new Promise((resolve) => child.on('close', () => { exited = true; resolve(); }));
   t.after(async () => { if (!exited) child.kill('SIGTERM'); await closed; });
+  // Last, so it runs after the wrapper has stopped writing into home.
+  t.after(() => rmSync(home, { recursive: true, force: true }));
   let timer;
   try {
     await Promise.race([received, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('settled work was not sent by the running wrapper')), 8000); })]);
@@ -72,7 +73,6 @@ test('a running unshipped wrapper retries finished work before its tool exits', 
 
 test('a child exiting during a background flush still uploads its final session', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'vibe-wrap-final-flush-'));
-  t.after(() => rmSync(home, { recursive: true, force: true }));
   const queued = randomUUID();
   const exitFile = join(home, 'exit-tool');
   writeFileSync(join(home, 'sessions.json'), JSON.stringify({ sessions: [{
@@ -122,7 +122,14 @@ test('a child exiting during a background flush still uploads its final session'
   child = spawn(process.execPath, ['--input-type=module', '-e', script], { cwd: home, env, stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
   let stderr = '';
   child.stderr.on('data', (chunk) => { stderr += chunk; });
-  t.after(() => { if (child.exitCode === null) child.kill('SIGKILL'); });
+  t.after(async () => {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    const gone = new Promise((resolve) => child.once('close', resolve));
+    child.kill('SIGKILL');
+    await gone;
+  });
+  // Last, so it runs after the wrapper has stopped writing into home.
+  t.after(() => rmSync(home, { recursive: true, force: true }));
   const code = await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('wrapper failed to finalize')), 8000);
     child.on('close', (status) => { clearTimeout(timeout); resolve(status); });

@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, mkdirSync } from 'node:fs';
 import { writeFileAtomic } from './write-file.js';
+import { isVibeCommand, stillRuns, type InstallMode } from './hook-command.js';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -72,7 +73,7 @@ function zcodeHookCommand(event: HookEvent): string {
 }
 
 function isVibeHook(hook: ZcodeHook): boolean {
-  return typeof hook?.command === 'string' && hook.command.includes('__hook');
+  return isVibeCommand(hook?.command);
 }
 
 export function isVibeZcodeHook(group: ZcodeHookGroup): boolean {
@@ -89,7 +90,7 @@ function withoutVibeHooks(groups: ZcodeHookGroup[]): ZcodeHookGroup[] {
   });
 }
 
-export function mergeZcodeHooks(config: ZcodeConfig): {
+export function mergeZcodeHooks(config: ZcodeConfig, mode: InstallMode = 'install'): {
   config: ZcodeConfig;
   added: number;
   existing: number;
@@ -114,7 +115,8 @@ export function mergeZcodeHooks(config: ZcodeConfig): {
       // it would drop the user's switch-on, and the session-start repair runs
       // this on every session, so tracking would turn itself off each time.
       const owned = ours.flatMap((g) => g.hooks.filter(isVibeHook));
-      const current = owned.length === 1 && owned[0].command === command;
+      const current = owned.length === 1
+        && (owned[0].command === command || (mode === 'repair' && stillRuns(owned[0].command, command)));
       if (current) continue;
       // A changed command (a moved Node or CLI) is new code to run, so it goes
       // back to off and waits for the user to switch it on again.
@@ -190,8 +192,8 @@ function writeConfig(path: string, config: ZcodeConfig): void {
   writeFileAtomic(path, JSON.stringify(config, null, 2) + '\n');
 }
 
-export function installZcodeHooks(path = defaultConfigPath(), silent = false): void {
-  const say = (msg: string) => { if (!silent) console.log(msg); };
+export function installZcodeHooks(path = defaultConfigPath(), mode: InstallMode = 'install'): void {
+  const say = (msg: string) => { if (mode === 'install') console.log(msg); };
   const read = readConfig(path);
   if (!('config' in read)) {
     say(`\n  ${RED('✗')} vibe: ${path} ${read.problem}, fix it and re-run\n`);
@@ -199,7 +201,7 @@ export function installZcodeHooks(path = defaultConfigPath(), silent = false): v
   }
   const current = read.config;
 
-  const { config, added, existing, updated } = mergeZcodeHooks(current);
+  const { config, added, existing, updated } = mergeZcodeHooks(current, mode);
   if (added === 0 && updated === 0) {
     say(`\n  ${PURPLE('◆')} zcode tracking already installed\n`);
     return;

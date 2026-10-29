@@ -1,4 +1,5 @@
-import { readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { lstatSync, readFileSync, readlinkSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
 // For files other programs own and write too: editor settings, hook configs,
@@ -12,13 +13,10 @@ import { randomBytes } from 'node:crypto';
 // the session-start repair runs this on every session, and a write that
 // changes nothing is still a write that can race.
 export function writeFileAtomic(path: string, content: string): void {
-  let target = path;
+  const target = realTarget(path);
   let mode: number | undefined;
-  try {
-    target = realpathSync(path);
-    if (readFileSync(target, 'utf-8') === content) return;
-    mode = statSync(target).mode & 0o777;
-  } catch {}
+  try { mode = statSync(target).mode & 0o777; } catch {}
+  try { if (readFileSync(target, 'utf-8') === content) return; } catch {}
 
   const tmp = `${target}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
   try {
@@ -26,10 +24,24 @@ export function writeFileAtomic(path: string, content: string): void {
     renameSync(tmp, target);
   } catch (err) {
     try { unlinkSync(tmp); } catch {}
-    // Windows refuses to rename over a file another process holds open. A
-    // plain write there is what this replaced, and better than no install.
+    // Windows refuses to rename over a file another process holds open, and a
+    // writable file can sit in a folder we may not create files in. A plain
+    // write is what this replaced, and better than no install.
     const code = (err as NodeJS.ErrnoException).code;
-    if (code !== 'EPERM' && code !== 'EBUSY') throw err;
+    if (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES') throw err;
     writeFileSync(target, content);
+  }
+}
+
+// A dotfiles link whose target does not exist yet still points where the file
+// belongs; writing there keeps the link instead of replacing it with a file.
+function realTarget(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    try {
+      if (lstatSync(path).isSymbolicLink()) return resolve(dirname(path), readlinkSync(path));
+    } catch {}
+    return path;
   }
 }
