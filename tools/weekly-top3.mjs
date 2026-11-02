@@ -15,7 +15,7 @@
 // The paste block uses bare handles on purpose: these are GitHub handles, and
 // an @ in a tweet would tag unrelated Twitter accounts.
 import { execFileSync, spawn } from 'node:child_process';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -90,13 +90,26 @@ const pad = Math.max(...rows.map((r) => r.handle.length));
 rows.forEach((r, i) => console.log(`  ${medals[i]} @${r.handle.padEnd(pad)}  ${r.ships} ship${r.ships === 1 ? '' : 's'}`));
 if (topCrew) console.log(`\n  top crew: ${topCrew.name} · ${topCrew.ships} ships · ${topCrew.members} members`);
 
+// Every post asks people to update: the ones who never do are the ones whose
+// numbers go wrong, and this is a place they reliably look. The version is
+// the one the server recommends.
+const recommended = /version: '([^']+)'/.exec(readFileSync(join(serverDir, 'src', 'release.ts'), 'utf8'))?.[1];
+
+const lines = [`weekly top shippers on vibetime, ${range}`, ''];
+rows.forEach((r, i) => lines.push(`${medals[i]} ${r.handle} · ${r.ships} ship${r.ships === 1 ? '' : 's'}`));
+if (topCrew) lines.push('', `top crew: ${topCrew.name} · ${topCrew.ships} ships`);
+if (recommended) lines.push('', `update to ${recommended}: npm i -g vibetime-cli`);
+lines.push('', 'vibetime.club/leaderboard');
+if (topCrew) lines.push('start a crew: vibetime.club/crews');
+
+// X weighs links as 23 and emoji as 2, and won't send past 280.
+const weight = (text) => [...text.replace(/vibetime\.club\/\S*/g, 'x'.repeat(23))]
+  .reduce((n, ch) => n + (ch.codePointAt(0) <= 4351 || (ch.codePointAt(0) >= 8192 && ch.codePointAt(0) <= 8247) ? 1 : 2), 0);
+const post = lines.join('\n');
+
 console.log('\n  ── paste ─────────────────────────────\n');
-console.log(`weekly top shippers on vibetime, ${range}\n`);
-rows.forEach((r, i) => console.log(`${medals[i]} ${r.handle} · ${r.ships} ship${r.ships === 1 ? '' : 's'}`));
-if (topCrew) console.log(`\ntop crew: ${topCrew.name} · ${topCrew.ships} ships`);
-console.log(`\nvibetime.club/leaderboard`);
-if (topCrew) console.log(`start a crew: vibetime.club/crews`);
-console.log();
+console.log(post);
+console.log(`\n  ── ${weight(post)}/280${weight(post) > 280 ? ', too long for X' : ''} ──\n`);
 
 // While the week is running, the live /crews board must agree with this
 // script. A mismatch means the two copies of the counting rule drifted.
