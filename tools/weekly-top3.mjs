@@ -9,8 +9,8 @@
 //
 //   node tools/weekly-top3.mjs             last completed week
 //   node tools/weekly-top3.mjs --current   the running week (preview)
-//   node tools/weekly-top3.mjs --html      also open a screenshot-ready card,
-//                                          same move as `vibe share` + h
+//   node tools/weekly-top3.mjs --html      also open a screenshot-ready card
+//                                          drawn with the site's podium
 //
 // The paste block uses bare handles on purpose: these are GitHub handles, and
 // an @ in a tweet would tag unrelated Twitter accounts.
@@ -30,7 +30,7 @@ const start = current ? monday : new Date(monday.getTime() - 7 * 86400000);
 const end = new Date(start.getTime() + 6 * 86400000);
 const day = (d) => d.toISOString().slice(0, 10);
 
-const sql = `SELECT u.handle, u.avatar_url, SUM(e.ships) AS ships, MIN(s.started_at) AS first_at
+const sql = `SELECT u.handle, u.avatar_url, SUM(e.ships) AS ships, COUNT(DISTINCT e.day) AS days, MIN(s.started_at) AS first_at
   FROM ship_events e
   JOIN users u ON u.github_id = e.user_github_id
   JOIN sessions s ON s.id = e.session_id
@@ -111,47 +111,70 @@ if (current && topCrew) {
 }
 
 if (wantHtml) {
-  // Same visual family as the vibe share card, staged for Twitter: near-16:9
-  // card, the winner as the centered hero, runners-up clearly secondary.
-  const avatarImg = (r, size) => r.avatar_url
-    ? `<img src="${r.avatar_url}${r.avatar_url.includes('?') ? '&' : '?'}s=${size * 2}" width="${size}" height="${size}" style="border-radius:50%;display:block;">`
-    : `<div style="width:${size}px;height:${size}px;border-radius:50%;background:#1a1a1a;"></div>`;
+  // The card is drawn with the live site's own stylesheet, so it matches the
+  // podium people land on from the post and follows any redesign without
+  // anyone touching this script. Everything is embedded because the card
+  // opens from file://, and the site's font is not served cross-origin.
+  const site = 'https://vibetime.club';
+  const get = async (path) => {
+    const res = await fetch(`${site}${path}`);
+    if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
+    return res;
+  };
+  let css;
+  let gem;
+  try {
+    const page = await (await get('/leaderboard')).text();
+    const cssPath = /<link rel="stylesheet" href="([^"]+)"/.exec(page)?.[1];
+    if (!cssPath) throw new Error('no stylesheet on /leaderboard');
+    css = await (await get(cssPath)).text();
+    for (const [match, path] of [...css.matchAll(/url\((\/[^)]+\.woff2)\)/g)]) {
+      const font = Buffer.from(await (await get(path)).arrayBuffer()).toString('base64');
+      css = css.replace(match, `url(data:font/woff2;base64,${font})`);
+    }
+    gem = `data:image/svg+xml;base64,${Buffer.from(await (await get('/favicon.svg')).arrayBuffer()).toString('base64')}`;
+  } catch (e) {
+    console.error(`  ! card skipped, it needs ${site} for the site's styles: ${e instanceof Error ? e.message : e}\n`);
+    process.exit(1);
+  }
 
-  const winner = rows[0];
-  const runners = rows.slice(1);
+  const esc = (v) => String(v).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  const avatar = (r, size) => r.avatar_url
+    ? `<img class="av" src="${esc(r.avatar_url)}${r.avatar_url.includes('?') ? '&amp;' : '?'}s=${size * 2}" width="${size}" height="${size}" alt="">`
+    : `<span class="av" style="width:${size}px;height:${size}px"></span>`;
+  const step = (r, i) => `<li class="pod pod-${i + 1}"><span class="pod-who">${avatar(r, i === 0 ? 120 : 96)}<span class="nm">${esc(r.handle)}</span></span><span class="pod-n">${r.ships}<small> ship${r.ships === 1 ? '' : 's'}</small></span><span class="pod-d">on ${r.days} day${r.days === 1 ? '' : 's'}</span><div class="pod-block"><span class="pod-r">${i + 1}</span></div></li>`;
 
-  const winnerBlock = `
-  <div style="display:flex;flex-direction:column;align-items:center;margin:30px 0 36px;">
-    <div style="position:relative;background:radial-gradient(circle,rgba(124,58,237,0.25) 0%,rgba(124,58,237,0) 70%);padding:26px 26px 18px;">
-      <div style="border:3px solid #a78bfa;border-radius:50%;padding:4px;box-shadow:0 0 60px rgba(124,58,237,0.5);">${avatarImg(winner, 100)}</div>
-      <div style="position:absolute;bottom:6px;right:2px;font-size:44px;line-height:1;filter:drop-shadow(0 3px 10px rgba(0,0,0,0.7));">🥇</div>
-    </div>
-    <div style="color:#fff;font-size:34px;font-weight:600;margin-top:10px;">${winner.handle}</div>
-    <div style="margin-top:8px;"><span style="color:#a78bfa;font-size:36px;font-weight:700;">${winner.ships}</span> <span style="color:#777;font-size:16px;">ship${winner.ships === 1 ? '' : 's'} this week</span></div>
-  </div>`;
-
-  const runnersBlock = runners.length === 0 ? '' : `
-  <div style="display:flex;gap:16px;">
-    ${runners.map((r, i) => `
-    <div style="flex:1;display:flex;align-items:center;gap:14px;background:#111;border:1px solid #1c1c1c;border-radius:12px;padding:16px 22px;">
-      <div style="font-size:30px;line-height:1;">${medals[i + 1]}</div>
-      ${avatarImg(r, 44)}
-      <div style="flex:1;color:#ddd;font-size:17px;">${r.handle}</div>
-      <div style="color:#a78bfa;font-size:20px;font-weight:600;">${r.ships}<span style="color:#666;font-size:12px;font-weight:400;"> ship${r.ships === 1 ? '' : 's'}</span></div>
-    </div>`).join('')}
-  </div>`;
-
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>vibe · top shippers</title></head>
-<body style="margin:0;background:#0a0a0a;display:flex;justify-content:center;align-items:center;min-height:100vh;">
-<div style="width:1000px;background:linear-gradient(180deg,#0f0d16 0%,#0d0d0d 45%);border:1px solid #1c1c1c;border-radius:16px;padding:44px 56px 40px;font-family:'SF Mono','Fira Code','Consolas',monospace;">
-  <div style="display:flex;justify-content:space-between;align-items:baseline;">
-    <div style="color:#a78bfa;font-size:17px;">◆ vibe <span style="color:#555;">·</span> <span style="color:#e5e5e5;">top shippers</span></div>
-    <div style="color:#666;font-size:14px;">${range}</div>
-  </div>
-  ${winnerBlock}
-  ${runnersBlock}
-  ${topCrew ? `<div style="display:flex;justify-content:center;align-items:center;gap:10px;margin-top:28px;color:#888;font-size:15px;"><span style="color:#555;">top crew</span><span style="color:#e5e5e5;">${topCrew.name.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]))}</span><span style="color:#a78bfa;font-weight:600;">${topCrew.ships}</span><span style="color:#666;font-size:12px;">ships</span></div>` : ''}
-  <div style="color:#555;font-size:13px;margin-top:${topCrew ? 18 : 36}px;text-align:center;">vibetime.club/leaderboard</div>
+  // Sized for X, which shows a 16:9 image uncropped. The overrides only scale
+  // the site's podium up from a 620px column to a 1200px image.
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>vibe · top shippers</title>
+<style>${css}</style>
+<style>
+  html, body { margin: 0; background: var(--bg); }
+  body { display: block; min-height: 0; }
+  .tc-card { box-sizing: border-box; width: 1200px; height: 675px; padding: 48px 64px 40px; display: flex; flex-direction: column; background: radial-gradient(ellipse 60% 45% at 50% 38%, var(--accent-wash) 0%, var(--bg) 70%); }
+  .tc-top { display: flex; justify-content: space-between; align-items: center; color: var(--text-3); font-size: 18px; }
+  .tc-brand { display: flex; align-items: center; gap: 12px; color: var(--text); font-size: 22px; font-weight: 600; }
+  .tc-brand img { width: 30px; height: 30px; }
+  .tc-brand span { color: var(--text-3); font-weight: 400; }
+  .podium { max-width: 920px; gap: 40px; margin: auto auto 0; }
+  .pod { gap: 10px; }
+  .pod-who { gap: 14px; }
+  .pod-who .nm { font-size: 24px; color: var(--text); }
+  .pod-n { font-size: 30px; }
+  .pod-n small { font-size: 18px; }
+  .pod-d { font-size: 16px; margin-top: -2px; }
+  .pod-block { animation: none; margin: 22px 20px 0 0; }
+  .pod-block::before { right: -20px; top: -13px; height: 13px; clip-path: polygon(0 100%, 20px 0, 100% 0, calc(100% - 20px) 100%); }
+  .pod-block::after { right: -20px; top: -13px; width: 20px; clip-path: polygon(0 13px, 100% 0, 100% calc(100% - 13px), 0 100%); }
+  .pod-1 .pod-block { --h: 150px; } .pod-2 .pod-block { --h: 106px; } .pod-3 .pod-block { --h: 78px; }
+  .pod-r { font-size: 40px; }
+  .tc-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 34px; padding-top: 22px; border-top: 1px solid var(--line); font-size: 18px; color: var(--text-3); }
+  .tc-foot b { color: var(--text); font-weight: 500; } .tc-foot em { color: var(--accent); font-style: normal; font-weight: 600; }
+</style></head><body>
+<div class="tc-card">
+  <div class="tc-top"><div class="tc-brand"><img src="${gem}" alt="">vibetime <span>· top shippers</span></div><div>${range}</div></div>
+  <ol class="podium">${rows.map(step).join('')}</ol>
+  <div class="tc-foot"><div>${topCrew ? `top crew <b>${esc(topCrew.name)}</b> · <em>${topCrew.ships}</em> ships` : ''}</div><div>vibetime.club/leaderboard</div></div>
 </div>
 </body></html>`;
 
