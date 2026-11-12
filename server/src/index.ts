@@ -4,7 +4,7 @@ import { submitSession } from './routes/sessions.js';
 import { leaderboardJson, leaderboardHtml } from './routes/leaderboard.js';
 import { statsJson, statsHtml } from './routes/stats.js';
 import { homeHtml } from './routes/home.js';
-import { parseBadgeHandle, parseProfileHandle, profileBadge, profileHtml } from './routes/profile.js';
+import { parseBadgeHandle, parseCardHandle, parseProfileHandle, profileBadge, profileCard, profileHtml } from './routes/profile.js';
 import { clientConfig } from './routes/config.js';
 import { githubCallback, githubStart, setTheme, signOut } from './routes/web-auth.js';
 import {
@@ -48,6 +48,10 @@ export default {
       const badgeHandle = request.method === 'GET' ? parseBadgeHandle(url.pathname) : null;
       if (badgeHandle) {
         return await profileBadge(request, env, badgeHandle);
+      }
+      const cardHandle = request.method === 'GET' ? parseCardHandle(url.pathname) : null;
+      if (cardHandle) {
+        return await profileCard(request, env, cardHandle);
       }
       const crewPath = parseCrewPath(url.pathname);
       if (crewPath) {

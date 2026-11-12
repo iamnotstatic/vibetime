@@ -14,5 +14,8 @@
     "@cloudflare/workers-types": "^4.20240620.0",
     "typescript": "^5.4.0",
     "wrangler": "^4.0.0"
+  },
+  "dependencies": {
+    "@resvg/resvg-wasm": "2.6.2"
   }
 }

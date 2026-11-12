@@ -3,7 +3,8 @@ import { PAGE_CSP, html } from '../http.js';
 import { currentViewer, pageCacheControl, signInEnabled, themeOf, webOrigin } from '../web-session.js';
 import { backFrom } from '../views/layout.js';
 import { badgeValue, renderBadge, renderProfile, renderProfileNotFound } from '../views/profile.js';
-import { crewBoard, crewsOf } from '../crews.js';
+import { ogImageResponse, renderPng, renderProfileCard } from '../views/og.js';
+import { crewBoard, crewsOf, type Membership } from '../crews.js';
 import { dayKey, startOfCalendarMonth, startOfCalendarWeek } from '../window.js';
 import { buildData } from './leaderboard.js';
 
@@ -44,6 +45,11 @@ export function parseProfileHandle(pathname: string): string | null {
 
 export function parseBadgeHandle(pathname: string): string | null {
   const m = /^(\/@[^/]+)\/badge\.svg$/.exec(pathname);
+  return m ? parseProfileHandle(m[1]) : null;
+}
+
+export function parseCardHandle(pathname: string): string | null {
+  const m = /^(\/@[^/]+)\/og\.png$/.exec(pathname);
   return m ? parseProfileHandle(m[1]) : null;
 }
 
@@ -181,6 +187,17 @@ const PAGE_HEADERS = {
   'x-content-type-options': 'nosniff',
 } as const;
 
+// A missing crews table must not take the profile down with it.
+async function crewsWithRanks(env: Env, githubId: number): Promise<{ crews: Membership[]; ranks: Map<string, number> }> {
+  const crews = await crewsOf(env, githubId).catch(() => []);
+  const ranks = new Map<string, number>();
+  if (crews.length) {
+    const board = await crewBoard(env, 'week').catch(() => []);
+    for (const b of board) if (b.rank !== null) ranks.set(b.slug, b.rank);
+  }
+  return { crews, ranks };
+}
+
 export async function profileHtml(request: Request, env: Env, handle: string): Promise<Response> {
   const [data, viewer] = await Promise.all([buildProfile(env, handle), currentViewer(request, env)]);
   const nav = { viewer, signInEnabled: signInEnabled(env), path: new URL(request.url).pathname, origin: webOrigin(env), theme: themeOf(request) };
@@ -189,12 +206,53 @@ export async function profileHtml(request: Request, env: Env, handle: string): P
   if (!data) {
     return html(renderProfileNotFound(handle, nav, back), { status: 404, headers });
   }
-  // A missing crews table must not take the profile down with it.
-  const crews = await crewsOf(env, data.githubId).catch(() => []);
-  const ranks = new Map<string, number>();
-  if (crews.length) {
-    const board = await crewBoard(env, 'week').catch(() => []);
-    for (const b of board) if (b.rank !== null) ranks.set(b.slug, b.rank);
-  }
+  const { crews, ranks } = await crewsWithRanks(env, data.githubId);
   return html(renderProfile(data, new Date(), nav, crews, back, ranks), { headers });
+}
+
+// Preview bots fetch this every time a profile link is pasted, so a rendered
+// card is kept at the edge and only a cold cache reads the database.
+const CARD_TTL_SECONDS = 6 * 3600;
+
+async function avatarDataUri(url: string | null): Promise<string | null> {
+  if (!url) return null;
+  try {
+    const res = await fetch(`${url}${url.includes('?') ? '&' : '?'}s=176`, { signal: AbortSignal.timeout(3000) });
+    const type = res.headers.get('content-type')?.split(';')[0] ?? '';
+    if (!res.ok || !['image/png', 'image/jpeg', 'image/gif'].includes(type)) return null;
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return `data:${type};base64,${btoa(bin)}`;
+  } catch {
+    return null;
+  }
+}
+
+// Every failure answers with the site-wide image, so a pasted link never shows
+// a broken preview.
+export async function profileCard(request: Request, env: Env, handle: string): Promise<Response> {
+  // Keyed by handle and day, never the caller's query string, so made-up
+  // variants of the URL cannot each force a render.
+  const cache = caches.default;
+  const url = new URL(request.url);
+  const key = new Request(`${url.origin}/@${handle.toLowerCase()}/og.png?d=${dayKey(new Date())}`, { method: 'GET' });
+  const hit = await cache.match(key).catch(() => undefined);
+  if (hit) return hit;
+  try {
+    const data = await buildProfile(env, handle);
+    if (!data) return ogImageResponse();
+    const [{ crews, ranks }, avatar] = await Promise.all([crewsWithRanks(env, data.githubId), avatarDataUri(data.avatarUrl)]);
+    const ranked = crews.flatMap((c) => (ranks.has(c.slug) ? [{ name: c.name, rank: ranks.get(c.slug)! }] : []));
+    const topCrew = ranked.sort((a, b) => a.rank - b.rank)[0] ?? null;
+    const png = await renderPng(renderProfileCard({ data, avatar, topCrew, origin: webOrigin(env) }));
+    const res = new Response(png, {
+      headers: { 'content-type': 'image/png', 'cache-control': `public, max-age=${CARD_TTL_SECONDS}`, 'x-content-type-options': 'nosniff' },
+    });
+    await cache.put(key, res.clone()).catch(() => {});
+    return res;
+  } catch (e) {
+    console.error('profile card failed:', e instanceof Error ? e.message : e);
+    return ogImageResponse();
+  }
 }
