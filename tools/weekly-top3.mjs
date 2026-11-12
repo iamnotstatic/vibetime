@@ -17,8 +17,8 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { d1, serverDir, xLength } from './lib.mjs';
 
 const current = process.argv.includes('--current');
 const wantHtml = process.argv.includes('--html');
@@ -39,11 +39,7 @@ const sql = `SELECT u.handle, u.avatar_url, SUM(e.ships) AS ships, COUNT(DISTINC
   ORDER BY ships DESC, first_at ASC
   LIMIT 3`;
 
-const serverDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'server');
-const out = execFileSync('npx', ['wrangler', 'd1', 'execute', 'vibetime', '--remote', '--json', '--command', sql], {
-  cwd: serverDir, encoding: 'utf8',
-});
-const rows = JSON.parse(out)[0].results;
+const rows = d1(sql);
 
 // Same counting as countedShips in server/src/crews.ts: a ship counts in any
 // week its author was a member, joining and leaving weeks included, and
@@ -68,10 +64,7 @@ const crewSql = `WITH spans AS (
   ORDER BY ships DESC, c.created_at ASC`;
 let topCrew = null;
 try {
-  const crewOut = execFileSync('npx', ['wrangler', 'd1', 'execute', 'vibetime', '--remote', '--json', '--command', crewSql], {
-    cwd: serverDir, encoding: 'utf8',
-  });
-  topCrew = JSON.parse(crewOut)[0].results.find((c) => c.members >= 2 && c.ships > 0) ?? null;
+  topCrew = d1(crewSql).find((c) => c.members >= 2 && c.ships > 0) ?? null;
 } catch (e) {
   console.error(`  (top crew skipped: ${e instanceof Error ? e.message.split('\n')[0] : e})`);
 }
@@ -102,14 +95,11 @@ if (recommended) lines.push('', `update to ${recommended}: npm i -g vibetime-cli
 lines.push('', 'vibetime.club/leaderboard');
 if (topCrew) lines.push('start a crew: vibetime.club/crews');
 
-// X weighs links as 23 and emoji as 2, and won't send past 280.
-const weight = (text) => [...text.replace(/vibetime\.club\/\S*/g, 'x'.repeat(23))]
-  .reduce((n, ch) => n + (ch.codePointAt(0) <= 4351 || (ch.codePointAt(0) >= 8192 && ch.codePointAt(0) <= 8247) ? 1 : 2), 0);
 const post = lines.join('\n');
 
 console.log('\n  ── paste ─────────────────────────────\n');
 console.log(post);
-console.log(`\n  ── ${weight(post)}/280${weight(post) > 280 ? ', too long for X' : ''} ──\n`);
+console.log(`\n  ── ${xLength(post)}/280${xLength(post) > 280 ? ', too long for X' : ''} ──\n`);
 
 // While the week is running, the live /crews board must agree with this
 // script. A mismatch means the two copies of the counting rule drifted.
