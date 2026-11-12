@@ -75,11 +75,15 @@ export function renderProfileCard({ data, avatar, topCrew, origin }: ProfileCard
       : []);
   const range = days.length ? `last 12 weeks · ${dayLabel(days[0].day)} – ${dayLabel(days[days.length - 1].day)}` : 'last 12 weeks';
 
-  const crewName = topCrew ? withoutEmoji(topCrew.name) : '';
-  const crewLine = topCrew && crewName
-    ? `<text x="64" y="581" font-size="18" fill="${C.text3}">crew <tspan fill="${C.text}">${escapeHtml(clip(crewName, 300, 18))}</tspan> · <tspan fill="${C.text}" font-weight="600">#${topCrew.rank}</tspan> this week</text>`
-    : '';
+  // X lays the page title over the bottom-left corner, so that corner holds
+  // the URL, which X shows under the card anyway, and the crew sits right.
   const link = `${new URL(origin).host}/@${handle}`;
+  const crewName = topCrew ? withoutEmoji(topCrew.name) : '';
+  const crewTail = topCrew ? ` · #${topCrew.rank} this week` : '';
+  const crewRoom = 1072 - link.length * 18 * ADVANCE - 40 - ('crew '.length + crewTail.length) * 18 * ADVANCE;
+  const crewLine = topCrew && crewName
+    ? `<text x="1136" y="581" font-size="18" fill="${C.text3}" text-anchor="end">crew <tspan fill="${C.text}">${escapeHtml(clip(crewName, crewRoom, 18))}</tspan> · <tspan fill="${C.text}" font-weight="600">#${topCrew.rank}</tspan> this week</text>`
+    : '';
 
   return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1200" height="630" viewBox="0 0 1200 630" font-family="Geist Mono">
 <defs>
@@ -99,8 +103,8 @@ ${t(shipsX, 385, 24, C.text3, `ship${data.all.ships === 1 ? '' : 's'}`)}
 <text x="64" y="420" font-size="18" fill="${C.text3}">on <tspan fill="${C.text}" font-weight="600">${formatCount(data.all.days)}</tspan> day${data.all.days === 1 ? '' : 's'} · <tspan fill="${C.text}" font-weight="600">${formatCount(data.month.ships)}</tspan> this month</text>
 <g transform="translate(516 124) scale(2.35)">${monthLabels.join('')}${rowLabels.join('')}${cells.join('')}</g>
 <rect x="64" y="543" width="1072" height="1" fill="${C.line}"/>
+${t(64, 581, 18, C.text3, escapeHtml(link))}
 ${crewLine}
-${t(1136, 581, 18, C.text3, escapeHtml(link), ' text-anchor="end"')}
 </svg>`;
 }
 
