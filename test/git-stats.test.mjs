@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, basename } from 'node:path';
 import { execSync } from 'node:child_process';
-import { baselineRepos, discoverRepos, getReposDiffStats } from '../dist/git.js';
+import { baselineRepos, discoverRepos, getReposDiffStats, measureRepos } from '../dist/git.js';
 
 function sh(cmd, cwd) {
   execSync(cmd, { cwd, stdio: 'pipe' });
@@ -119,4 +119,55 @@ test('a worktree parked on an old branch adds nothing', (t) => {
     linesRemoved: 0,
     filesTouched: 0,
   });
+});
+
+const lockfile = (n) => Array.from({ length: n }, (_, i) => `dep-${i}@1.0.${i}`).join('\n') + '\n';
+
+test('a regenerated lockfile does not count toward lines or files', (t) => {
+  const dir = scratch(t);
+  const repo = initRepo(dir, 'repo');
+  const baseline = baselineRepos(repo);
+
+  writeFileSync(join(repo, 'index.js'), 'a\nb\n');
+  writeFileSync(join(repo, 'package-lock.json'), lockfile(400));
+  sh('mkdir -p web', repo);
+  writeFileSync(join(repo, 'web', 'yarn.lock'), lockfile(300));
+  sh('git add -A', repo);
+  commit(repo, 'deps');
+  writeFileSync(join(repo, 'package-lock.json'), lockfile(600));
+
+  assert.deepEqual(getReposDiffStats(baseline), {
+    commits: 1,
+    linesAdded: 2,
+    linesRemoved: 0,
+    filesTouched: 1,
+  });
+});
+
+test('a commit that only regenerates a lockfile measures as no lines and no files', (t) => {
+  const dir = scratch(t);
+  const repo = initRepo(dir, 'repo');
+  const baseline = baselineRepos(repo);
+
+  writeFileSync(join(repo, 'pnpm-lock.yaml'), lockfile(500));
+  sh('git add -A', repo);
+  commit(repo, 'bump');
+
+  const [work] = measureRepos(baseline);
+  assert.equal(work.commits.length, 1);
+  assert.equal(work.commits[0].linesAdded, 0);
+  assert.equal(work.commits[0].files.length, 0);
+});
+
+test('a file merely named like a lockfile still counts', (t) => {
+  const dir = scratch(t);
+  const repo = initRepo(dir, 'repo');
+  const baseline = baselineRepos(repo);
+
+  writeFileSync(join(repo, 'lockfile.ts'), 'x\ny\nz\n');
+  writeFileSync(join(repo, 'my-package-lock.json'), '{}\n');
+  sh('git add -A', repo);
+  commit(repo, 'code');
+
+  assert.deepEqual(getReposDiffStats(baseline), { commits: 1, linesAdded: 4, linesRemoved: 0, filesTouched: 2 });
 });
