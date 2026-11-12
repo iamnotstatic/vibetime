@@ -20,9 +20,9 @@ migrations_dir = "migrations"
 #   GITHUB_CLIENT_ID — public OAuth client id, used to validate access tokens belong to our app
 #   JWT_SECRET       — 32-byte hex secret used to sign vibetime JWTs
 
-# Bundles the link-preview image and the site font as bytes; regenerate the
+# Bundles the link-preview image and the fonts as bytes; regenerate the
 # image from tools/og-card.html.
 [[rules]]
 type = "Data"
-globs = ["**/*.png", "**/*.woff2"]
+globs = ["**/*.png", "**/*.woff2", "**/*.ttf"]
 fallthrough = true

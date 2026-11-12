@@ -40,7 +40,7 @@ export interface NavContext {
   theme: Theme;
 }
 
-export function renderMeta(nav: NavContext, title: string, description: string): string {
+export function renderMeta(nav: NavContext, title: string, description: string, image = '/og.png'): string {
   const url = `${nav.origin}${nav.path.split('?')[0]}`;
   const tags: [string, string, string][] = [
     ['name', 'description', description],
@@ -49,10 +49,10 @@ export function renderMeta(nav: NavContext, title: string, description: string):
     ['property', 'og:title', title],
     ['property', 'og:description', description],
     ['property', 'og:url', url],
-    ['property', 'og:image', `${nav.origin}/og.png`],
+    ['property', 'og:image', `${nav.origin}${image}`],
     ['property', 'og:image:width', '1200'],
     ['property', 'og:image:height', '630'],
-    ['property', 'og:image:alt', 'vibetime: track what you actually ship with AI.'],
+    ['property', 'og:image:alt', image === '/og.png' ? 'vibetime: track what you actually ship with AI.' : description],
     ['name', 'twitter:card', 'summary_large_image'],
   ];
   return tags.map(([k, n, v]) => `<meta ${k}="${n}" content="${escapeHtml(v)}">`).join('\n');
@@ -157,7 +157,7 @@ export interface PageOptions {
   nav: NavContext;
   body: string;
   // Link preview tags, for pages people share.
-  preview?: { title: string; description: string };
+  preview?: { title: string; description: string; image?: string };
 }
 
 // Every page is this shell: one cached stylesheet, the font, the site script,
@@ -172,7 +172,7 @@ export function renderPage({ title, place, nav, body, preview }: PageOptions): s
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="preload" href="${FONT_URL}" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="${SITE_CSS_URL}">
-${preview ? renderMeta(nav, preview.title, preview.description) : ''}
+${preview ? renderMeta(nav, preview.title, preview.description, preview.image) : ''}
 <script src="${COPY_SCRIPT_URL}" defer></script>
 </head>
 <body>

@@ -3,6 +3,7 @@ import { avatar, command, crewInitials, crewShade, escapeHtml, formatCount, rend
 import { LEGEND, heatLevel, liveDot, relativeTime } from './leaderboard.js';
 import { icon } from './style.js';
 import type { Membership } from '../crews.js';
+import { dayKey } from '../window.js';
 
 function statBlock(label: string, ships: number, days: number): string {
   const dayNoun = days === 1 ? 'day' : 'days';
@@ -97,7 +98,8 @@ export function renderProfile(data: ProfileData, updatedAt: Date, nav: NavContex
     title: `@${data.handle} · vibetime`,
     place: null,
     nav,
-    preview: { title: `@${data.handle} on vibetime`, description: profileDescription(data) },
+    // Dated, so a site that caches previews by URL picks up a fresh card daily.
+    preview: { title: `@${data.handle} on vibetime`, description: profileDescription(data), image: `/@${data.handle}/og.png?d=${dayKey(updatedAt)}` },
     body: `${renderBack(back)}
   <header class="prof">
     ${avatar(data.avatarUrl, 72)}
