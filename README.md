@@ -105,7 +105,7 @@ vibe leaderboard  view the leaderboard from your terminal
 vibe logout       sign out and stop submitting
 ```
 
-The leaderboard ranks by ships: each time a session lands a commit with meaningful changes (more than 50 lines or more than 3 files). The squares show which days you shipped. Tabs on the web view switch between this week (Monday to Sunday, UTC), this month, and all time.
+The leaderboard ranks by ships: each time a session lands a commit with meaningful changes (more than 50 lines or more than 3 files). Lockfiles such as package-lock.json, yarn.lock and Cargo.lock are left out of both counts, since a regenerated one is not work. The squares show which days you shipped. Tabs on the web view switch between this week (Monday to Sunday, UTC), this month, and all time.
 
 Sign-in uses the GitHub device flow: no browser callback, just a short code you paste on github.com. Until you run `vibe login`, no network requests are made.
 
